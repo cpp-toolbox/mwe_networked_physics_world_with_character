@@ -1,0 +1,21 @@
+[submodule "client/organizational_tools"]
+	path = client/organizational_tools
+	url = git@github.com:opengl-toolbox/organizational_tools.git
+[submodule "client/window"]
+	path = client/window
+	url = git@github.com:opengl-toolbox/window.git
+[submodule "client/external_libraries/glfw"]
+	path = client/external_libraries/glfw
+	url = https://github.com/glfw/glfw
+[submodule "client/external_libraries/glad_opengl_3.3_core"]
+	path = client/external_libraries/glad_opengl_3.3_core
+	url = git@github.com:opengl-toolbox/glad_opengl_3.3_core.git
+[submodule "client/input_snapshot"]
+	path = client/input_snapshot
+	url = git@github.com:opengl-toolbox/input_snapshot.git
+[submodule "client/game_loop"]
+	path = client/game_loop
+	url = git@github.com:opengl-toolbox/game_loop.git
+[submodule "client/stopwatch"]
+	path = client/stopwatch
+	url = git@github.com:opengl-toolbox/stopwatch.git
