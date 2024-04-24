@@ -1,3 +1,4 @@
+#include "client.hpp"
 #include "game_loop/game_loop.hpp"
 #include "input_snapshot/input_snapshot.hpp"
 #include "window/window.hpp"
@@ -26,6 +27,8 @@ int main() {
 
     std::function<int()> termination = termination_closure(window);
     std::function<void()> render = render_closure(window);
+
+    connect_and_disconnect();
 
     game_loop.start(60, update, render, termination);
 }

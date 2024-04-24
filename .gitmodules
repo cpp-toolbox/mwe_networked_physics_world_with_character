@@ -19,3 +19,12 @@
 [submodule "client/stopwatch"]
 	path = client/stopwatch
 	url = git@github.com:opengl-toolbox/stopwatch.git
+[submodule "server/external_libraries/enet"]
+	path = server/external_libraries/enet
+	url = git@github.com:zpl-c/enet.git
+[submodule "client/external_libraries/enet"]
+	path = client/external_libraries/enet
+	url = git@github.com:zpl-c/enet.git
+[submodule "server/organizational_tools"]
+	path = server/organizational_tools
+	url = git@github.com:opengl-toolbox/organizational_tools.git
