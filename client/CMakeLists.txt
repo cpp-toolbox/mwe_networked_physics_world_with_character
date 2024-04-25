@@ -7,6 +7,7 @@ add_executable(client
 	main.cpp 
 	window/window.cpp 
 	game_loop/game_loop.cpp 
+	rate_limited_loop/rate_limited_loop.cpp
 	stopwatch/stopwatch.cpp
 	client.cpp
 )

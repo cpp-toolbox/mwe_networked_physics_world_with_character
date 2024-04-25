@@ -2,6 +2,7 @@
 #include "game_loop/game_loop.hpp"
 #include "input_snapshot/input_snapshot.hpp"
 #include "window/window.hpp"
+#include <thread>
 
 std::function<void()> render_closure(GLFWwindow *window) {
     return [window]() {
@@ -28,7 +29,11 @@ int main() {
     std::function<int()> termination = termination_closure(window);
     std::function<void()> render = render_closure(window);
 
-    connect_and_disconnect();
+    ClientNetwork client_network(&input_snapshot);
+    client_network.attempt_to_connect_to_server();
+
+    std::thread input_sending_thread(&ClientNetwork::start_input_sending_loop, std::ref(client_network));
+    input_sending_thread.detach();
 
     game_loop.start(60, update, render, termination);
 }
