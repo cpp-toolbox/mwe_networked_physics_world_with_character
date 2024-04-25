@@ -1,4 +1,7 @@
 - figure out why cpu usage is high on client and server, probably has to do with spinning calls on enet?
+
+- see what performance is like using sleep loops
+
 - make sure I'm using packets correctly, do I have to delete them, is it alright to use flush to send the packets... 
 - start by rendering something basic, so that I know graphics is working over the network
 - add in text rendering and draw information to the screen about the rates things are being sent and received
