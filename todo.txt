@@ -1,0 +1,10 @@
+- figure out why cpu usage is high on client and server, probably has to do with spinning calls on enet?
+- make sure I'm using packets correctly, do I have to delete them, is it alright to use flush to send the packets... 
+- start by rendering something basic, so that I know graphics is working over the network
+- add in text rendering and draw information to the screen about the rates things are being sent and received
+- add in jolt physics on server side, and use that to draw something basic
+- render a map and a ball which you can roll around or something along those lines
+- add client side interpolation and reconciliation
+
+resources:
+- https://github.com/google/flatbuffers?tab=readme-ov-file
