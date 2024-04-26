@@ -66,7 +66,7 @@ void ClientNetwork::start_input_sending_loop() {
 
     std::function<bool()> termination_func = []() { return false; };
 
-    std::function<void(double)> rate_limited_func = [this](double time_since_last_send) {
+    std::function<void()> rate_limited_func = [this]() {
         unsigned int binary_input_snapshot = this->input_snapshot_to_binary();
         printf("%d\n", binary_input_snapshot);
         ENetPacket *packet =

@@ -28,3 +28,6 @@
 [submodule "server/organizational_tools"]
 	path = server/organizational_tools
 	url = git@github.com:opengl-toolbox/organizational_tools.git
+[submodule "client/rate_limited_loop"]
+	path = client/rate_limited_loop
+	url = git@github.com:opengl-toolbox/rate_limited_loop.git

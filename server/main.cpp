@@ -3,10 +3,6 @@
 #include "server.hpp"
 
 int main() {
-
-  std::thread t(run_server_loop);
-  t.detach();
-
-  while (true) {
-  }
+    std::thread t(run_server_loop);
+    t.join();
 }
