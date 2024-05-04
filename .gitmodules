@@ -61,3 +61,27 @@
 [submodule "server/interaction/camera"]
 	path = server/interaction/camera
 	url = git@github.com:opengl-toolbox/camera.git
+[submodule "client/graphics/shaders"]
+	path = client/graphics/shaders
+	url = git@github.com:opengl-toolbox/shaders.git
+[submodule "client/graphics/textured_model_loading"]
+	path = client/graphics/textured_model_loading
+	url = git@github.com:opengl-toolbox/textured_model_loading.git
+[submodule "client/external_libraries/glm"]
+	path = client/external_libraries/glm
+	url = git@github.com:g-truc/glm.git
+[submodule "client/external_libraries/assimp"]
+	path = client/external_libraries/assimp
+	url = git@github.com:assimp/assimp.git
+[submodule "client/graphics/shader_pipeline"]
+	path = client/graphics/shader_pipeline
+	url = git@github.com:opengl-toolbox/shader_pipeline.git
+[submodule "client/assets"]
+	path = client/assets
+	url = git@github.com:opengl-toolbox/assets.git
+[submodule "client/interaction/camera"]
+	path = client/interaction/camera
+	url = git@github.com:opengl-toolbox/camera.git
+[submodule "client/external_libraries/stb"]
+	path = client/external_libraries/stb
+	url = git@github.com:nothings/stb.git

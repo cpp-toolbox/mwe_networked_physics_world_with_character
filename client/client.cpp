@@ -78,7 +78,7 @@ void ClientNetwork::start_input_sending_loop() {
         enet_host_flush(client);
     };
 
-    rate_limited_loop.start(1.0, rate_limited_func, termination_func);
+    rate_limited_loop.start(60, rate_limited_func, termination_func);
 }
 
 unsigned int ClientNetwork::input_snapshot_to_binary() {
@@ -128,7 +128,7 @@ void ClientNetwork::attempt_to_send_test_packet() {
     // enet_host_service(client, &event, 5000);
 }
 
-int ClientNetwork::start_game_state_receive_loop() {
+int ClientNetwork::start_game_state_receive_loop(glm::vec3 *character_position) {
     ENetEvent event;
     int wait_time_milliseconds = 100;
 
@@ -152,6 +152,9 @@ int ClientNetwork::start_game_state_receive_loop() {
                 if (packet_is_player_position) {
                     float *player_position = (float *)event.packet->data;
                     printf("position %f %f %f\n", player_position[0], player_position[1], player_position[2]);
+                    character_position->x = player_position[0];
+                    character_position->y = player_position[1];
+                    character_position->z = player_position[2];
                 }
                 /* Clean up the packet now that we're done using it. */
                 enet_packet_destroy(event.packet);

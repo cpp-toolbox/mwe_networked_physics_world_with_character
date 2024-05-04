@@ -12,7 +12,7 @@ std::function<void(double)> physics_step_closure(InputSnapshot *input_snapshot, 
     return [input_snapshot, physics, camera, movement_acceleration](double time_since_last_update) {
         // auto [change_in_yaw_angle, change_in_pitch_angle] =
         //     mouse->get_yaw_pitch_deltas(input_snapshot->mouse_position_x, input_snapshot->mouse_position_y);
-        camera->update_look_direction(0.01, 0.01);
+        camera->update_look_direction(0, 0);
 
         printf("delta time: %f\n", time_since_last_update);
 
@@ -62,6 +62,8 @@ int main() {
     Camera camera;
     const float movement_acceleration = 15.0f;
 
+    const int physics_and_network_send_rate_hz = 60;
+
     Physics physics;
     Model map("../assets/maps/ground_test.obj");
     physics.load_model_into_physics_world(&map);
@@ -70,14 +72,16 @@ int main() {
     std::function<void(double)> physics_step =
         physics_step_closure(&input_snapshot, &physics, &camera, movement_acceleration);
     std::function<bool()> termination_condition = []() { return false; };
-    std::function<void()> start_loop = [&]() { physics_loop.start(1, physics_step, termination_condition); };
+    std::function<void()> start_loop = [&]() {
+        physics_loop.start(physics_and_network_send_rate_hz, physics_step, termination_condition);
+    };
     std::thread physics_thread(start_loop);
     physics_thread.detach();
 
     RateLimitedLoop game_state_send_loop;
     std::function<void(double)> game_state_send_step = server_network.game_state_send_step_closure(&physics);
     std::function<void()> start_game_state_send_loop = [&]() {
-        game_state_send_loop.start(1, game_state_send_step, termination_condition);
+        game_state_send_loop.start(physics_and_network_send_rate_hz, game_state_send_step, termination_condition);
     };
     std::thread game_state_send_loop_thread(start_game_state_send_loop);
     game_state_send_loop_thread.detach();
