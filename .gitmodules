@@ -31,3 +31,33 @@
 [submodule "client/rate_limited_loop"]
 	path = client/rate_limited_loop
 	url = git@github.com:opengl-toolbox/rate_limited_loop.git
+[submodule "server/input_snapshot"]
+	path = server/input_snapshot
+	url = git@github.com:opengl-toolbox/input_snapshot.git
+[submodule "server/rate_limited_loop"]
+	path = server/rate_limited_loop
+	url = git@github.com:opengl-toolbox/rate_limited_loop.git
+[submodule "server/external_libraries/glm"]
+	path = server/external_libraries/glm
+	url = git@github.com:g-truc/glm.git
+[submodule "server/interaction/physics"]
+	path = server/interaction/physics
+	url = git@github.com:opengl-toolbox/physics.git
+[submodule "server/external_libraries/JoltPhysics"]
+	path = server/external_libraries/JoltPhysics
+	url = git@github.com:jrouwe/JoltPhysics.git
+[submodule "server/external_libraries/assimp"]
+	path = server/external_libraries/assimp
+	url = git@github.com:assimp/assimp.git
+[submodule "server/model_loading"]
+	path = server/model_loading
+	url = git@github.com:opengl-toolbox/model_loading.git
+[submodule "server/math"]
+	path = server/math
+	url = git@github.com:opengl-toolbox/math.git
+[submodule "server/assets"]
+	path = server/assets
+	url = git@github.com:opengl-toolbox/assets.git
+[submodule "server/interaction/camera"]
+	path = server/interaction/camera
+	url = git@github.com:opengl-toolbox/camera.git

@@ -128,6 +128,58 @@ void ClientNetwork::attempt_to_send_test_packet() {
     // enet_host_service(client, &event, 5000);
 }
 
+int ClientNetwork::start_game_state_receive_loop() {
+    ENetEvent event;
+    int wait_time_milliseconds = 100;
+
+    while (true) {
+        /* Wait for an event. (WARNING: blocking, which is ok, since this is in it's own thread) */
+        while (enet_host_service(this->client, &event, wait_time_milliseconds) > 0) {
+            switch (event.type) {
+            case ENET_EVENT_TYPE_CONNECT: // is this even possible on the client?
+                printf("A new client connected from %x:%u.\n", event.peer->address.host, event.peer->address.port);
+                /* Store any relevant client information here. */
+                event.peer->data = (void *)"Client information";
+                break;
+
+            case ENET_EVENT_TYPE_RECEIVE: {
+                // printf("A packet of length %lu containing %s was received from %s on "
+                //        "channel %u.\n",
+                //        event.packet->dataLength, event.packet->data, event.peer->data, event.channelID);
+
+                // not everything is going to be an input snapshot, but it works for now.
+                bool packet_is_player_position = true;
+                if (packet_is_player_position) {
+                    float *player_position = (float *)event.packet->data;
+                    printf("position %f %f %f\n", player_position[0], player_position[1], player_position[2]);
+                }
+                /* Clean up the packet now that we're done using it. */
+                enet_packet_destroy(event.packet);
+            } break;
+
+            case ENET_EVENT_TYPE_DISCONNECT:
+                printf("%s disconnected.\n", event.peer->data);
+                /* Reset the peer's client information. */
+                event.peer->data = NULL;
+                break;
+
+            case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
+                printf("%s disconnected due to timeout.\n", event.peer->data);
+                /* Reset the peer's client information. */
+                event.peer->data = NULL;
+                break;
+
+            case ENET_EVENT_TYPE_NONE:
+                break;
+            }
+        }
+    }
+
+    enet_host_destroy(this->client);
+    enet_deinitialize();
+    return 0;
+}
+
 void ClientNetwork::disconnect_from_server() {
 
     // Disconnect

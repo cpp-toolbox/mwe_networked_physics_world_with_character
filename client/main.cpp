@@ -35,5 +35,8 @@ int main() {
     std::thread input_sending_thread(&ClientNetwork::start_input_sending_loop, std::ref(client_network));
     input_sending_thread.detach();
 
+    std::thread game_state_receive_thread(&ClientNetwork::start_game_state_receive_loop, std::ref(client_network));
+    game_state_receive_thread.detach();
+
     game_loop.start(60, update, render, termination);
 }

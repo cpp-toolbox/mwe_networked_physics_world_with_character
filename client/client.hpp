@@ -16,6 +16,7 @@ class ClientNetwork {
     std::string server_ip_address = "127.0.0.1";
     int server_port = 7777;
     void start_input_sending_loop();
+    int start_game_state_receive_loop();
     void initialize_client_network();
     void attempt_to_connect_to_server();
     void disconnect_from_server();
