@@ -85,3 +85,9 @@
 [submodule "client/external_libraries/stb"]
 	path = client/external_libraries/stb
 	url = git@github.com:nothings/stb.git
+[submodule "server/external_libraries/FTXUI"]
+	path = server/external_libraries/FTXUI
+	url = git@github.com:ArthurSonzogni/FTXUI.git
+[submodule "server/stopwatch"]
+	path = server/stopwatch
+	url = git@github.com:opengl-toolbox/stopwatch.git

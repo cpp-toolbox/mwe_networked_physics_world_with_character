@@ -11,6 +11,7 @@ add_executable(server
 	interaction/camera/camera.cpp
 	model_loading/model_loading.cpp
 	math/conversions.cpp
+	stopwatch/stopwatch.cpp
 )
 
 # ENet: Networking
@@ -38,4 +39,16 @@ set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
 include_directories(external_libraries/assimp/include)
 add_subdirectory(external_libraries/assimp)
 
-target_link_libraries(server enet_static Jolt assimp)
+# FTXUI: build TUIs easily
+set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+include_directories(external_libraries/FTXUI/include)
+add_subdirectory(external_libraries/FTXUI)
+
+target_link_libraries(server 
+	PRIVATE ftxui::screen
+	PRIVATE ftxui::dom
+	PRIVATE ftxui::component # Not needed for this example.
+	enet_static 
+	Jolt 
+	assimp
+)
