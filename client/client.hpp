@@ -3,7 +3,18 @@
 
 #include "enet.h"
 #include "input_snapshot/input_snapshot.hpp"
+#include "interaction/camera/camera.hpp"
 #include <string>
+
+// BAD DON"T PUT THIS HERE NEEDS TO GO IN SUBMODULE SO
+// STAYS SYNCED BETWEEN CLIENT AND SERVER
+struct GameState {
+    float character_x_position;
+    float character_y_position;
+    float character_z_position;
+    double camera_yaw_angle;
+    double camera_pitch_angle;
+};
 
 class ClientNetwork {
   public:
@@ -16,7 +27,7 @@ class ClientNetwork {
     std::string server_ip_address = "127.0.0.1";
     int server_port = 7777;
     void start_input_sending_loop();
-    int start_game_state_receive_loop(glm::vec3 *character_position);
+    int start_game_state_receive_loop(glm::vec3 *character_position, Camera *camera);
     void initialize_client_network();
     void attempt_to_connect_to_server();
     void disconnect_from_server();

@@ -96,8 +96,15 @@ int ServerNetwork::start_receive_loop(InputSnapshot *input_snapshot) {
                 // not everything is going to be an input snapshot, but it works for now.
                 bool packet_is_input_snapshot = true;
                 if (packet_is_input_snapshot) {
-                    unsigned int binary_input_snapshot = *event.packet->data;
-                    write_binary_input_snapshot_to_input_snapshot(binary_input_snapshot, input_snapshot);
+                    InputSnapshot *received_input_snapshot = reinterpret_cast<InputSnapshot *>(event.packet->data);
+                    set_inputs_to_false(input_snapshot);
+                    input_snapshot->left_pressed = received_input_snapshot->left_pressed;
+                    input_snapshot->right_pressed = received_input_snapshot->right_pressed;
+                    input_snapshot->forward_pressed = received_input_snapshot->forward_pressed;
+                    input_snapshot->backward_pressed = received_input_snapshot->backward_pressed;
+                    input_snapshot->jump_pressed = received_input_snapshot->jump_pressed;
+                    input_snapshot->mouse_position_x = received_input_snapshot->mouse_position_x;
+                    input_snapshot->mouse_position_y = received_input_snapshot->mouse_position_y;
                 }
                 /* Clean up the packet now that we're done using it. */
                 enet_packet_destroy(event.packet);
@@ -129,14 +136,13 @@ int ServerNetwork::start_receive_loop(InputSnapshot *input_snapshot) {
 /**
  * \note that this is run in a thread, but only uses read-only on the physics world
  */
-std::function<void(double)> ServerNetwork::game_state_send_step_closure(Physics *physics) {
-    return [physics, this](double time_since_last_update) {
+std::function<void(double)> ServerNetwork::game_state_send_step_closure(Physics *physics, Camera *camera) {
+    return [physics, camera, this](double time_since_last_update) {
         JPH::Vec3 character_position = physics->character->GetPosition();
-        float sendable_character_pos[3] = {character_position.GetX(), character_position.GetY(),
-                                           character_position.GetZ()};
+        GameState game_state = {character_position.GetX(), character_position.GetY(), character_position.GetZ(),
+                                camera->yaw_angle, camera->pitch_angle};
         /* Create a reliable packet of size 7 containing "packet\0" */
-        ENetPacket *packet =
-            enet_packet_create(sendable_character_pos, sizeof(sendable_character_pos), ENET_PACKET_FLAG_RELIABLE);
+        ENetPacket *packet = enet_packet_create(&game_state, sizeof(GameState), 0);
         /* Send the packet to the peer over channel id 0. */
         /* One could also broadcast the packet by         */
         /* enet_host_broadcast (host, 0, packet);         */

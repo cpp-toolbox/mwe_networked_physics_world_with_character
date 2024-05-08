@@ -45,7 +45,7 @@ int main() {
     input_sending_thread.detach();
 
     std::thread game_state_receive_thread(&ClientNetwork::start_game_state_receive_loop, std::ref(client_network),
-                                          &character_position);
+                                          &character_position, &camera);
     game_state_receive_thread.detach();
 
     game_loop.start(60, update, render, termination);

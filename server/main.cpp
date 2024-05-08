@@ -6,6 +6,7 @@
 #include "interaction/camera/camera.hpp"
 #include "model_loading/model_loading.hpp"
 #include "math/conversions.hpp"
+#include "interaction/mouse/mouse.hpp"
 
 #include "ftxui/component/component.hpp" // for Checkbox, Renderer, Horizontal, Vertical, Input, Menu, Radiobox, ResizableSplitLeft, Tab
 #include "ftxui/component/screen_interactive.hpp" // for Component, ScreenInteractive
@@ -14,11 +15,13 @@
 #include <ftxui/screen/screen.hpp>
 
 std::function<void(double)> physics_step_closure(InputSnapshot *input_snapshot, Physics *physics, Camera *camera,
-                                                 float movement_acceleration) {
-    return [input_snapshot, physics, camera, movement_acceleration](double time_since_last_update) {
+                                                 Mouse *mouse, float movement_acceleration) {
+    return [input_snapshot, physics, camera, mouse, movement_acceleration](double time_since_last_update) {
         // auto [change_in_yaw_angle, change_in_pitch_angle] =
         //     mouse->get_yaw_pitch_deltas(input_snapshot->mouse_position_x, input_snapshot->mouse_position_y);
-        camera->update_look_direction(0, 0);
+        auto [change_in_yaw_angle, change_in_pitch_angle] =
+            mouse->get_yaw_pitch_deltas(input_snapshot->mouse_position_x, input_snapshot->mouse_position_y);
+        camera->update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
 
         // printf("delta time: %f\n", time_since_last_update);
 
@@ -137,6 +140,7 @@ int main() {
     ServerNetwork server_network;
     InputSnapshot input_snapshot;
     Camera camera;
+    Mouse mouse;
     const float movement_acceleration = 15.0f;
     const int physics_and_network_send_rate_hz = 60;
 
@@ -146,7 +150,7 @@ int main() {
 
     RateLimitedLoop physics_loop;
     std::function<void(double)> physics_step =
-        physics_step_closure(&input_snapshot, &physics, &camera, movement_acceleration);
+        physics_step_closure(&input_snapshot, &physics, &camera, &mouse, movement_acceleration);
     std::function<bool()> termination_condition = []() { return false; };
     std::function<void()> start_loop = [&]() {
         physics_loop.start(physics_and_network_send_rate_hz, physics_step, termination_condition);
@@ -155,7 +159,7 @@ int main() {
     physics_thread.detach();
 
     RateLimitedLoop game_state_send_loop;
-    std::function<void(double)> game_state_send_step = server_network.game_state_send_step_closure(&physics);
+    std::function<void(double)> game_state_send_step = server_network.game_state_send_step_closure(&physics, &camera);
     std::function<void()> start_game_state_send_loop = [&]() {
         game_state_send_loop.start(physics_and_network_send_rate_hz, game_state_send_step, termination_condition);
     };
@@ -166,9 +170,15 @@ int main() {
     auto start_server_receive_loop = [&server_network, &input_snapshot]() {
         server_network.start_receive_loop(&input_snapshot);
     };
-    std::thread server_receive_loop_thread(start_server_receive_loop);
-    server_receive_loop_thread.detach();
 
-    return start_terminal_interface(&physics_loop.stopwatch.average_frequency,
-                                    &game_state_send_loop.stopwatch.average_frequency);
+    bool using_tui = false;
+
+    std::thread server_receive_loop_thread(start_server_receive_loop);
+    if (using_tui) {
+        server_receive_loop_thread.detach();
+        return start_terminal_interface(&physics_loop.stopwatch.average_frequency,
+                                        &game_state_send_loop.stopwatch.average_frequency);
+    } else {
+        server_receive_loop_thread.join();
+    }
 }

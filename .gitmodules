@@ -91,3 +91,6 @@
 [submodule "server/stopwatch"]
 	path = server/stopwatch
 	url = git@github.com:opengl-toolbox/stopwatch.git
+[submodule "server/interaction/mouse"]
+	path = server/interaction/mouse
+	url = git@github.com:opengl-toolbox/mouse.git

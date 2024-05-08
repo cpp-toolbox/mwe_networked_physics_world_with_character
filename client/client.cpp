@@ -67,10 +67,8 @@ void ClientNetwork::start_input_sending_loop() {
     std::function<bool()> termination_func = []() { return false; };
 
     std::function<void()> rate_limited_func = [this]() {
-        unsigned int binary_input_snapshot = this->input_snapshot_to_binary();
-        printf("%d\n", binary_input_snapshot);
         ENetPacket *packet =
-            enet_packet_create(&binary_input_snapshot, sizeof(binary_input_snapshot), ENET_PACKET_FLAG_RELIABLE);
+            enet_packet_create(this->input_snapshot, sizeof(InputSnapshot), 0); // 0 indicates unreliable packet
 
         enet_peer_send(server_connection, 0, packet);
 
@@ -128,7 +126,7 @@ void ClientNetwork::attempt_to_send_test_packet() {
     // enet_host_service(client, &event, 5000);
 }
 
-int ClientNetwork::start_game_state_receive_loop(glm::vec3 *character_position) {
+int ClientNetwork::start_game_state_receive_loop(glm::vec3 *character_position, Camera *camera) {
     ENetEvent event;
     int wait_time_milliseconds = 100;
 
@@ -150,11 +148,13 @@ int ClientNetwork::start_game_state_receive_loop(glm::vec3 *character_position) 
                 // not everything is going to be an input snapshot, but it works for now.
                 bool packet_is_player_position = true;
                 if (packet_is_player_position) {
-                    float *player_position = (float *)event.packet->data;
-                    printf("position %f %f %f\n", player_position[0], player_position[1], player_position[2]);
-                    character_position->x = player_position[0];
-                    character_position->y = player_position[1];
-                    character_position->z = player_position[2];
+                    GameState *game_state = reinterpret_cast<GameState *>(event.packet->data);
+                    // float *player_position = (float *)event.packet->data;
+                    // printf("position %f %f %f\n", player_position[0], player_position[1], player_position[2]);
+                    character_position->x = game_state->character_x_position;
+                    character_position->y = game_state->character_y_position;
+                    character_position->z = game_state->character_z_position;
+                    camera->set_look_direction(game_state->camera_yaw_angle, game_state->camera_pitch_angle);
                 }
                 /* Clean up the packet now that we're done using it. */
                 enet_packet_destroy(event.packet);

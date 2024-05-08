@@ -6,9 +6,12 @@ project(server)
 add_executable(server 
 	main.cpp 
 	server.cpp
-	rate_limited_loop/rate_limited_loop.cpp
+
 	interaction/physics/physics.cpp
 	interaction/camera/camera.cpp
+	interaction/mouse/mouse.cpp
+
+	rate_limited_loop/rate_limited_loop.cpp
 	model_loading/model_loading.cpp
 	math/conversions.cpp
 	stopwatch/stopwatch.cpp
