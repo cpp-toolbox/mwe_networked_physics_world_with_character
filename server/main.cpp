@@ -8,59 +8,72 @@
 #include "math/conversions.hpp"
 #include "interaction/mouse/mouse.hpp"
 
+#include "thread_safe_queue.hpp"
+
 #include "ftxui/component/component.hpp" // for Checkbox, Renderer, Horizontal, Vertical, Input, Menu, Radiobox, ResizableSplitLeft, Tab
 #include "ftxui/component/screen_interactive.hpp" // for Component, ScreenInteractive
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>
 
-std::function<void(double)> physics_step_closure(InputSnapshot *input_snapshot, Physics *physics, Camera *camera,
-                                                 Mouse *mouse, float movement_acceleration) {
-    return [input_snapshot, physics, camera, mouse, movement_acceleration](double time_since_last_update) {
-        // auto [change_in_yaw_angle, change_in_pitch_angle] =
-        //     mouse->get_yaw_pitch_deltas(input_snapshot->mouse_position_x, input_snapshot->mouse_position_y);
-        auto [change_in_yaw_angle, change_in_pitch_angle] =
-            mouse->get_yaw_pitch_deltas(input_snapshot->mouse_position_x, input_snapshot->mouse_position_y);
-        camera->update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
+void update_player_velocity(JPH::Ref<JPH::CharacterVirtual> &character, Camera &camera, Mouse &mouse,
+                            InputSnapshot &input_snapshot, float movement_acceleration, double time_since_last_update,
+                            JPH::Vec3 gravity) {
+    auto [change_in_yaw_angle, change_in_pitch_angle] =
+        mouse.get_yaw_pitch_deltas(input_snapshot.mouse_position_x, input_snapshot.mouse_position_y);
+    camera.update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
 
-        // printf("delta time: %f\n", time_since_last_update);
+    printf("with change in yaw: %f pitch: %f\n", change_in_yaw_angle, change_in_pitch_angle);
 
-        JPH::Vec3 character_position = physics->character->GetPosition();
+    JPH::Vec3 character_position = character->GetPosition();
 
-        // printf("character position: %f %f %f\n", character_position.GetX(), character_position.GetY(),
-        //        character_position.GetZ());
+    // printf("character position: %f %f %f\n", character_position.GetX(), character_position.GetY(),
+    //        character_position.GetZ());
 
-        // in jolt y is z
-        glm::vec3 updated_velocity = convert_vec3_from_jolt_to_glm(physics->character->GetLinearVelocity());
+    // in jolt y is z
+    glm::vec3 updated_velocity = convert_vec3_from_jolt_to_glm(character->GetLinearVelocity());
 
-        glm::vec3 input_vec =
-            camera->input_snapshot_to_input_direction(input_snapshot->forward_pressed, input_snapshot->backward_pressed,
-                                                      input_snapshot->right_pressed, input_snapshot->left_pressed);
+    glm::vec3 input_vec =
+        camera.input_snapshot_to_input_direction(input_snapshot.forward_pressed, input_snapshot.backward_pressed,
+                                                 input_snapshot.right_pressed, input_snapshot.left_pressed);
 
-        updated_velocity += input_vec * movement_acceleration * (float)time_since_last_update;
-
-        glm::vec3 current_xz_velocity = glm::vec3(updated_velocity.x, 0.0f, updated_velocity.z);
-
-        glm::vec3 y_axis = glm::vec3(0, 1, 0);
-
-        float friction = 0.983f;
-
-        updated_velocity *= friction; // friction
-
-        // jump if needed.
-        if (physics->character->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround) {
-            updated_velocity.y = 0; // empty out vertical velocity while on ground
-            if (input_snapshot->jump_pressed) {
-                updated_velocity += (float)1200 * convert_vec3_from_jolt_to_glm(physics->character->GetUp()) *
-                                    (float)time_since_last_update;
-            }
+    updated_velocity += input_vec * movement_acceleration * (float)time_since_last_update;
+    glm::vec3 current_xz_velocity = glm::vec3(updated_velocity.x, 0.0f, updated_velocity.z);
+    glm::vec3 y_axis = glm::vec3(0, 1, 0);
+    float friction = 0.983f;
+    updated_velocity *= friction; // friction
+    if (character->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround) {
+        updated_velocity.y = 0; // empty out vertical velocity while on ground
+        if (input_snapshot.jump_pressed) {
+            updated_velocity +=
+                (float)1200 * convert_vec3_from_jolt_to_glm(character->GetUp()) * (float)time_since_last_update;
         }
+    }
 
-        glm::vec3 gravity = convert_vec3_from_jolt_to_glm(physics->physics_system.GetGravity());
-        // apply gravity
-        updated_velocity += gravity * (float)time_since_last_update;
+    glm::vec3 glm_gravity = convert_vec3_from_jolt_to_glm(gravity);
+    // apply gravity
+    updated_velocity += glm_gravity * (float)time_since_last_update;
 
-        physics->character->SetLinearVelocity(convert_vec3_from_glm_to_jolt(updated_velocity));
+    character->SetLinearVelocity(convert_vec3_from_glm_to_jolt(updated_velocity));
+}
+
+std::function<void(double)> physics_step_closure(InputSnapshot *input_snapshot, Physics *physics,
+                                                 std::unordered_map<uint64_t, Camera> &client_id_to_camera,
+                                                 std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
+                                                 float movement_acceleration) {
+    return [input_snapshot, physics, &client_id_to_camera, &client_id_to_mouse,
+            movement_acceleration](double time_since_last_update) {
+        while (!physics->input_snapshot_queue.empty()) {
+            // InputSnapshot popped_input_snapshot = physics->input_snapshot_queue.front();
+            InputSnapshot popped_input_snapshot = physics->input_snapshot_queue.pop();
+            uint64_t client_id = popped_input_snapshot.client_id;
+            JPH::Ref<JPH::CharacterVirtual> &physics_character = physics->client_id_to_physics_character[client_id];
+            Camera &camera = client_id_to_camera[client_id];
+            Mouse &mouse = client_id_to_mouse[client_id];
+            printf("updating player %lu\n", client_id);
+            update_player_velocity(physics_character, camera, mouse, popped_input_snapshot, movement_acceleration,
+                                   time_since_last_update, physics->physics_system.GetGravity());
+        }
         physics->update(time_since_last_update);
     };
 }
@@ -139,8 +152,8 @@ int start_terminal_interface(double *physics_rate_hz, double *game_state_send_ra
 int main() {
     ServerNetwork server_network;
     InputSnapshot input_snapshot;
-    Camera camera;
-    Mouse mouse;
+    std::unordered_map<uint64_t, Camera> client_id_to_camera;
+    std::unordered_map<uint64_t, Mouse> client_id_to_mouse;
     const float movement_acceleration = 15.0f;
     const int physics_and_network_send_rate_hz = 60;
 
@@ -150,7 +163,7 @@ int main() {
 
     RateLimitedLoop physics_loop;
     std::function<void(double)> physics_step =
-        physics_step_closure(&input_snapshot, &physics, &camera, &mouse, movement_acceleration);
+        physics_step_closure(&input_snapshot, &physics, client_id_to_camera, client_id_to_mouse, movement_acceleration);
     std::function<bool()> termination_condition = []() { return false; };
     std::function<void()> start_loop = [&]() {
         physics_loop.start(physics_and_network_send_rate_hz, physics_step, termination_condition);
@@ -159,7 +172,8 @@ int main() {
     physics_thread.detach();
 
     RateLimitedLoop game_state_send_loop;
-    std::function<void(double)> game_state_send_step = server_network.game_state_send_step_closure(&physics, &camera);
+    std::function<void(double)> game_state_send_step =
+        server_network.game_state_send_step_closure(&physics, client_id_to_camera);
     std::function<void()> start_game_state_send_loop = [&]() {
         game_state_send_loop.start(physics_and_network_send_rate_hz, game_state_send_step, termination_condition);
     };
@@ -167,8 +181,10 @@ int main() {
     std::thread game_state_send_loop_thread(start_game_state_send_loop);
     game_state_send_loop_thread.detach();
 
-    auto start_server_receive_loop = [&server_network, &input_snapshot]() {
-        server_network.start_receive_loop(&input_snapshot);
+    auto start_server_receive_loop = [&server_network, &input_snapshot, &physics, &client_id_to_camera,
+                                      &client_id_to_mouse]() {
+        server_network.start_receive_loop(&input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
+                                          physics.input_snapshot_queue);
     };
 
     bool using_tui = false;

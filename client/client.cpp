@@ -49,6 +49,7 @@ void ClientNetwork::attempt_to_connect_to_server() {
     /* Wait up to 5 seconds for the connection attempt to succeed. */
     if (enet_host_service(client, &event, 5000) > 0 && event.type == ENET_EVENT_TYPE_CONNECT) {
         puts("Connection to some.server.net:1234 succeeded.");
+        printf("peer id: %d\n", enet_peer_get_id(event.peer));
     } else {
         /* Either the 5 seconds are up or a disconnect event was */
         /* received. Reset the peer in the event the 5 seconds   */
@@ -60,6 +61,8 @@ void ClientNetwork::attempt_to_connect_to_server() {
 
 void ClientNetwork::start_input_sending_loop() {
 
+    printf("sending\n");
+
     RateLimitedLoop rate_limited_loop;
 
     ENetEvent event = {static_cast<ENetEventType>(0)};
@@ -67,9 +70,17 @@ void ClientNetwork::start_input_sending_loop() {
     std::function<bool()> termination_func = []() { return false; };
 
     std::function<void()> rate_limited_func = [this]() {
+        if (id == -1) {
+            printf("id not set yet, not sending anything\n");
+            return; // id not yet received from server
+        }
+
+        this->input_snapshot->client_id = this->id;
         ENetPacket *packet =
             enet_packet_create(this->input_snapshot, sizeof(InputSnapshot), 0); // 0 indicates unreliable packet
+        //
 
+        printf("msx %f msy %f\n", this->input_snapshot->mouse_position_x, this->input_snapshot->mouse_position_y);
         enet_peer_send(server_connection, 0, packet);
 
         /* One could just use enet_host_service() instead. */
@@ -141,20 +152,38 @@ int ClientNetwork::start_game_state_receive_loop(glm::vec3 *character_position, 
                 break;
 
             case ENET_EVENT_TYPE_RECEIVE: {
+
+                if (event.packet->dataLength == sizeof(uint64_t)) { // client id
+                    uint64_t receivedID = *reinterpret_cast<const uint64_t *>(event.packet->data);
+                    this->id = receivedID;
+                    printf("Received unique ID from server: %lu\n", receivedID);
+                }
+
                 // printf("A packet of length %lu containing %s was received from %s on "
                 //        "channel %u.\n",
                 //        event.packet->dataLength, event.packet->data, event.peer->data, event.channelID);
 
-                // not everything is going to be an input snapshot, but it works for now.
-                bool packet_is_player_position = true;
-                if (packet_is_player_position) {
-                    GameState *game_state = reinterpret_cast<GameState *>(event.packet->data);
-                    // float *player_position = (float *)event.packet->data;
-                    // printf("position %f %f %f\n", player_position[0], player_position[1], player_position[2]);
-                    character_position->x = game_state->character_x_position;
-                    character_position->y = game_state->character_y_position;
-                    character_position->z = game_state->character_z_position;
-                    camera->set_look_direction(game_state->camera_yaw_angle, game_state->camera_pitch_angle);
+                bool client_id_received_already = id != -1;
+                if (client_id_received_already) { // everything after the client id is a game state update
+                    //
+                    printf("got game update \n");
+                    // Extract the data
+                    PlayerData *game_update = reinterpret_cast<PlayerData *>(event.packet->data);
+                    size_t game_update_length = event.packet->dataLength / sizeof(PlayerData);
+
+                    // Display the received data
+                    for (size_t i = 0; i < game_update_length; ++i) {
+                        PlayerData player_data = game_update[i];
+                        printf("look at %lu and %lu\n", player_data.client_id, this->id);
+                        if (player_data.client_id == this->id) {
+                            printf("got %f %f %f\n", player_data.character_x_position, player_data.character_y_position,
+                                   player_data.character_z_position);
+                            character_position->x = player_data.character_x_position;
+                            character_position->y = player_data.character_y_position;
+                            character_position->z = player_data.character_z_position;
+                            camera->set_look_direction(player_data.camera_yaw_angle, player_data.camera_pitch_angle);
+                        }
+                    }
                 }
                 /* Clean up the packet now that we're done using it. */
                 enet_packet_destroy(event.packet);

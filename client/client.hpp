@@ -8,7 +8,8 @@
 
 // BAD DON"T PUT THIS HERE NEEDS TO GO IN SUBMODULE SO
 // STAYS SYNCED BETWEEN CLIENT AND SERVER
-struct GameState {
+struct PlayerData {
+    uint64_t client_id;
     float character_x_position;
     float character_y_position;
     float character_z_position;
@@ -20,8 +21,8 @@ class ClientNetwork {
   public:
     ClientNetwork(InputSnapshot *input_snapshot);
     ~ClientNetwork();
+    uint64_t id = -1;
     InputSnapshot *input_snapshot;
-
     ENetHost *client;
     ENetPeer *server_connection;
     std::string server_ip_address = "127.0.0.1";

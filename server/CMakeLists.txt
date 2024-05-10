@@ -10,7 +10,7 @@ add_executable(server
 	interaction/physics/physics.cpp
 	interaction/camera/camera.cpp
 	interaction/mouse/mouse.cpp
-
+	
 	rate_limited_loop/rate_limited_loop.cpp
 	model_loading/model_loading.cpp
 	math/conversions.cpp
