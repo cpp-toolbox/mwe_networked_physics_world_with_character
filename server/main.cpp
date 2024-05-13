@@ -23,7 +23,8 @@ void update_player_velocity(JPH::Ref<JPH::CharacterVirtual> &character, Camera &
         mouse.get_yaw_pitch_deltas(input_snapshot.mouse_position_x, input_snapshot.mouse_position_y);
     camera.update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
 
-    printf("with change in yaw: %f pitch: %f\n", change_in_yaw_angle, change_in_pitch_angle);
+    // printf("    updating character velocity with change in yaw: %f pitch: %f\n", change_in_yaw_angle,
+    //        change_in_pitch_angle);
 
     JPH::Vec3 character_position = character->GetPosition();
 
@@ -67,10 +68,10 @@ std::function<void(double)> physics_step_closure(InputSnapshot *input_snapshot, 
             // InputSnapshot popped_input_snapshot = physics->input_snapshot_queue.front();
             InputSnapshot popped_input_snapshot = physics->input_snapshot_queue.pop();
             uint64_t client_id = popped_input_snapshot.client_id;
+            // printf("    draining queue and updating player %lu\n", client_id);
             JPH::Ref<JPH::CharacterVirtual> &physics_character = physics->client_id_to_physics_character[client_id];
             Camera &camera = client_id_to_camera[client_id];
             Mouse &mouse = client_id_to_mouse[client_id];
-            printf("updating player %lu\n", client_id);
             update_player_velocity(physics_character, camera, mouse, popped_input_snapshot, movement_acceleration,
                                    time_since_last_update, physics->physics_system.GetGravity());
         }
@@ -171,29 +172,18 @@ int main() {
     std::thread physics_thread(start_loop);
     physics_thread.detach();
 
-    RateLimitedLoop game_state_send_loop;
-    std::function<void(double)> game_state_send_step =
-        server_network.game_state_send_step_closure(&physics, client_id_to_camera);
-    std::function<void()> start_game_state_send_loop = [&]() {
-        game_state_send_loop.start(physics_and_network_send_rate_hz, game_state_send_step, termination_condition);
-    };
-
-    std::thread game_state_send_loop_thread(start_game_state_send_loop);
-    game_state_send_loop_thread.detach();
-
-    auto start_server_receive_loop = [&server_network, &input_snapshot, &physics, &client_id_to_camera,
-                                      &client_id_to_mouse]() {
-        server_network.start_receive_loop(&input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
+    auto start_network_loop = [&server_network, &input_snapshot, &physics, &client_id_to_camera,
+                               &client_id_to_mouse]() {
+        server_network.start_network_loop(40, &input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
                                           physics.input_snapshot_queue);
     };
 
     bool using_tui = false;
-
-    std::thread server_receive_loop_thread(start_server_receive_loop);
+    double temp_network_freq = -1.0;
+    std::thread server_receive_loop_thread(start_network_loop);
     if (using_tui) {
         server_receive_loop_thread.detach();
-        return start_terminal_interface(&physics_loop.stopwatch.average_frequency,
-                                        &game_state_send_loop.stopwatch.average_frequency);
+        return start_terminal_interface(&physics_loop.stopwatch.average_frequency, &temp_network_freq);
     } else {
         server_receive_loop_thread.join();
     }

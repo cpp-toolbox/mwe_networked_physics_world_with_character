@@ -3,7 +3,22 @@
 #include <stdio.h>
 #include "client.hpp"
 #include "input_snapshot/input_snapshot.hpp"
-#include "rate_limited_loop/rate_limited_loop.hpp"
+
+void print_current_time() {
+    // Get the current time point
+    auto currentTime = std::chrono::high_resolution_clock::now();
+
+    // Extract minutes, seconds, and milliseconds
+    auto currentTime_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(currentTime);
+    auto timeSinceEpoch = currentTime_ms.time_since_epoch();
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(timeSinceEpoch) % 1000;
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(timeSinceEpoch) % 60;
+    auto minutes = std::chrono::duration_cast<std::chrono::minutes>(timeSinceEpoch) % 60;
+
+    // Print the extracted time
+    printf("Current time: %lld minutes, %lld seconds, %lld milliseconds\n", minutes.count(), seconds.count(),
+           milliseconds.count());
+}
 
 ClientNetwork::ClientNetwork(InputSnapshot *input_snapshot) : input_snapshot(input_snapshot) {
     initialize_client_network();
@@ -59,91 +74,18 @@ void ClientNetwork::attempt_to_connect_to_server() {
     }
 }
 
-void ClientNetwork::start_input_sending_loop() {
-
-    printf("sending\n");
-
-    RateLimitedLoop rate_limited_loop;
-
-    ENetEvent event = {static_cast<ENetEventType>(0)};
-
-    std::function<bool()> termination_func = []() { return false; };
-
-    std::function<void()> rate_limited_func = [this]() {
-        if (id == -1) {
-            printf("id not set yet, not sending anything\n");
-            return; // id not yet received from server
-        }
-
-        this->input_snapshot->client_id = this->id;
-        ENetPacket *packet =
-            enet_packet_create(this->input_snapshot, sizeof(InputSnapshot), 0); // 0 indicates unreliable packet
-        //
-
-        printf("msx %f msy %f\n", this->input_snapshot->mouse_position_x, this->input_snapshot->mouse_position_y);
-        enet_peer_send(server_connection, 0, packet);
-
-        /* One could just use enet_host_service() instead. */
-        enet_host_flush(client);
-    };
-
-    rate_limited_loop.start(60, rate_limited_func, termination_func);
-}
-
-unsigned int ClientNetwork::input_snapshot_to_binary() {
-    bool l = this->input_snapshot->left_pressed;
-    bool r = this->input_snapshot->right_pressed;
-    bool f = this->input_snapshot->forward_pressed;
-    bool b = this->input_snapshot->backward_pressed;
-    bool j = this->input_snapshot->jump_pressed;
-
-    bool inputs[5] = {l, r, f, b, j};
-
-    unsigned int binary_input_snapshot = 0;
-
-    for (int i = 0; i < 5; i++) {
-        if (inputs[i]) {
-            binary_input_snapshot = binary_input_snapshot | 1 << i;
-        }
-    }
-    return binary_input_snapshot;
-}
-
-/**
- * \pre you've connected to the server
- */
-void ClientNetwork::attempt_to_send_test_packet() {
-
-    ENetEvent event = {static_cast<ENetEventType>(0)};
-    /* Create a reliable packet of size 7 containing "packet\0" */
-    ENetPacket *packet = enet_packet_create("packet", strlen("packet") + 1, ENET_PACKET_FLAG_RELIABLE);
-
-    // about to put a while loop here
-
-    // /* Extend the packet so and append the string "foo", so it now */
-    // /* contains "packetfoo\0"                                      */
-    // enet_packet_resize(packet, strlen("packetfoo") + 1);
-    // strcpy(&packet->data[strlen("packet")], "foo");
-
-    /* Send the packet to the peer over channel id 0. */
-    /* One could also broadcast the packet by         */
-    /* enet_host_broadcast (host, 0, packet);         */
-    enet_peer_send(server_connection, 0, packet);
-
-    /* One could just use enet_host_service() instead. */
-    enet_host_flush(client);
-
-    // Receive some events
-    // enet_host_service(client, &event, 5000);
-}
-
-int ClientNetwork::start_game_state_receive_loop(glm::vec3 *character_position, Camera *camera) {
+int ClientNetwork::start_network_loop(int send_frequency_hz,
+                                      std::unordered_map<uint64_t, PlayerData> &client_id_to_character_data) {
     ENetEvent event;
-    int wait_time_milliseconds = 100;
+
+    bool first_iteration = true;
+    std::chrono::steady_clock::time_point time_of_last_input_snapshot_send;
+    float send_period_sec = 1.0 / send_frequency_hz;
+    int send_period_ms = send_period_sec * 1000;
 
     while (true) {
         /* Wait for an event. (WARNING: blocking, which is ok, since this is in it's own thread) */
-        while (enet_host_service(this->client, &event, wait_time_milliseconds) > 0) {
+        if (enet_host_service(this->client, &event, send_period_ms) > 0) {
             switch (event.type) {
             case ENET_EVENT_TYPE_CONNECT: // is this even possible on the client?
                 printf("A new client connected from %x:%u.\n", event.peer->address.host, event.peer->address.port);
@@ -166,23 +108,29 @@ int ClientNetwork::start_game_state_receive_loop(glm::vec3 *character_position, 
                 bool client_id_received_already = id != -1;
                 if (client_id_received_already) { // everything after the client id is a game state update
                     //
-                    printf("got game update \n");
                     // Extract the data
                     PlayerData *game_update = reinterpret_cast<PlayerData *>(event.packet->data);
                     size_t game_update_length = event.packet->dataLength / sizeof(PlayerData);
 
-                    // Display the received data
                     for (size_t i = 0; i < game_update_length; ++i) {
                         PlayerData player_data = game_update[i];
-                        printf("look at %lu and %lu\n", player_data.client_id, this->id);
-                        if (player_data.client_id == this->id) {
-                            printf("got %f %f %f\n", player_data.character_x_position, player_data.character_y_position,
-                                   player_data.character_z_position);
-                            character_position->x = player_data.character_x_position;
-                            character_position->y = player_data.character_y_position;
-                            character_position->z = player_data.character_z_position;
-                            camera->set_look_direction(player_data.camera_yaw_angle, player_data.camera_pitch_angle);
-                        }
+                        client_id_to_character_data[player_data.client_id] = player_data;
+
+                        print_current_time();
+                        printf("<~~~ received id: %lu is client: %b, pos: (%f, %f, %f) look: (%f, %f) \n",
+                               player_data.client_id, player_data.client_id == this->id,
+                               player_data.character_x_position, player_data.character_y_position,
+                               player_data.character_z_position, player_data.camera_yaw_angle,
+                               player_data.camera_pitch_angle);
+                        // if (player_data.client_id == this->id) {
+                        //     printf("got %f %f %f\n", player_data.character_x_position,
+                        //     player_data.character_y_position,
+                        //            player_data.character_z_position);
+                        //     character_position->x = player_data.character_x_position;
+                        //     character_position->y = player_data.character_y_position;
+                        //     character_position->z = player_data.character_z_position;
+                        //     camera->set_look_direction(player_data.camera_yaw_angle, player_data.camera_pitch_angle);
+                        // }
                     }
                 }
                 /* Clean up the packet now that we're done using it. */
@@ -205,11 +153,43 @@ int ClientNetwork::start_game_state_receive_loop(glm::vec3 *character_position, 
                 break;
             }
         }
+
+        if (first_iteration) {
+            time_of_last_input_snapshot_send = std::chrono::steady_clock::now();
+            first_iteration = false;
+        } else if (this->id != -1) {
+            // if we 're not in the first iteration and we've received our client id from the server, then we can send
+            // out data. otherwise keep waiting
+            auto current_time = std::chrono::steady_clock::now();
+            std::chrono::duration<double> time_since_last_input_snapshot_send_sec =
+                current_time - time_of_last_input_snapshot_send;
+            if (time_since_last_input_snapshot_send_sec.count() >= send_period_sec) {
+                print_current_time();
+                printf("~~~> sending input snapshot\n");
+                send_input_snapshot();
+                time_of_last_input_snapshot_send = current_time;
+            }
+        }
     }
 
     enet_host_destroy(this->client);
     enet_deinitialize();
     return 0;
+}
+
+/*
+ * \pre this->id != -1
+ */
+void ClientNetwork::send_input_snapshot() {
+    assert(this->id != -1);
+    this->input_snapshot->client_id = this->id;
+    ENetPacket *packet =
+        enet_packet_create(this->input_snapshot, sizeof(InputSnapshot), 0); // 0 indicates unreliable packet
+
+    // printf("msx %f msy %f\n", this->input_snapshot->mouse_position_x,
+    // this->input_snapshot->mouse_position_y);
+    enet_peer_send(server_connection, 0, packet);
+    enet_host_flush(client);
 }
 
 void ClientNetwork::disconnect_from_server() {

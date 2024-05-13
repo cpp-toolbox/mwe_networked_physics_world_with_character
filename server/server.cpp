@@ -1,14 +1,28 @@
 #include "server.hpp"
 #include "interaction/physics/physics.hpp"
 #include "thread_safe_queue.hpp"
-#include <functional>
+#include <chrono>
 #include <stdexcept>
 #include <stdio.h>
 #include <string>
 
-using std::function;
-
 uint64_t UniqueIDGenerator::generate() { return counter.fetch_add(1, std::memory_order_relaxed); };
+
+void print_current_time() {
+    // Get the current time point
+    auto currentTime = std::chrono::high_resolution_clock::now();
+
+    // Extract minutes, seconds, and milliseconds
+    auto currentTime_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(currentTime);
+    auto timeSinceEpoch = currentTime_ms.time_since_epoch();
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(timeSinceEpoch) % 1000;
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(timeSinceEpoch) % 60;
+    auto minutes = std::chrono::duration_cast<std::chrono::minutes>(timeSinceEpoch) % 60;
+
+    // Print the extracted time
+    printf("Current time: %lld minutes, %lld seconds, %lld milliseconds\n", minutes.count(), seconds.count(),
+           milliseconds.count());
+}
 
 void set_inputs_to_false(InputSnapshot *input_snapshot) {
     input_snapshot->left_pressed = false;
@@ -98,16 +112,22 @@ void ServerNetwork::remove_client_data_from_engine(ENetEvent disconnect_event, P
     }
 }
 
-int ServerNetwork::start_receive_loop(InputSnapshot *input_snapshot, Physics *physics,
+int ServerNetwork::start_network_loop(int send_frequency_hz, InputSnapshot *input_snapshot, Physics *physics,
                                       std::unordered_map<uint64_t, Camera> &client_id_to_camera,
                                       std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
                                       ThreadSafeQueue<InputSnapshot> &input_snapshot_queue) {
     ENetEvent event;
-    int wait_time_milliseconds = 100;
+
+    bool first_iteration = true;
+    std::chrono::high_resolution_clock::time_point time_of_last_game_update_send;
+    float send_period_sec = 1.0 / send_frequency_hz;
+    int send_period_ms = send_period_sec * 1000;
 
     while (true) {
         /* Wait for an event. (WARNING: blocking, which is ok, since this is in it's own thread) */
-        while (enet_host_service(this->server, &event, wait_time_milliseconds) > 0) {
+        print_current_time();
+        printf("starting host_service\n");
+        if (enet_host_service(this->server, &event, send_period_ms) > 0) {
             switch (event.type) {
             case ENET_EVENT_TYPE_CONNECT: {
                 printf("A new client connected from %x:%u.\n", event.peer->address.host, event.peer->address.port);
@@ -130,13 +150,15 @@ int ServerNetwork::start_receive_loop(InputSnapshot *input_snapshot, Physics *ph
             } break;
 
             case ENET_EVENT_TYPE_RECEIVE: {
-                // printf("A packet of length %lu containing %s was received from %s on "
-                //        "channel %u.\n",
-                //        event.packet->dataLength, event.packet->data, event.peer->data, event.channelID);
-                // not everything is going to be an input snapshot, but it works for now.
                 bool packet_is_input_snapshot = true;
                 if (packet_is_input_snapshot) {
                     InputSnapshot received_input_snapshot = *reinterpret_cast<InputSnapshot *>(event.packet->data);
+                    print_current_time();
+                    printf("<~~~ received id: %lu l: %b r: %b f: %b b: %b, j: %b, msx: %f, msy: %f \n",
+                           received_input_snapshot.client_id, received_input_snapshot.left_pressed,
+                           received_input_snapshot.right_pressed, received_input_snapshot.forward_pressed,
+                           received_input_snapshot.backward_pressed, received_input_snapshot.jump_pressed,
+                           received_input_snapshot.mouse_position_x, received_input_snapshot.mouse_position_y);
                     input_snapshot_queue.push(received_input_snapshot);
                 }
                 /* Clean up the packet now that we're done using it. */
@@ -161,6 +183,26 @@ int ServerNetwork::start_receive_loop(InputSnapshot *input_snapshot, Physics *ph
                 break;
             }
         }
+        printf("ending host_service, about to send game state\n");
+
+        if (first_iteration) {
+            time_of_last_game_update_send = std::chrono::high_resolution_clock::now();
+            first_iteration = false;
+        } else {
+            auto current_time = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> time_since_last_game_update_send_sec =
+                current_time - time_of_last_game_update_send;
+            printf("elapsed time %f requires at least %f\n", time_since_last_game_update_send_sec.count(),
+                   send_period_sec);
+            if (time_since_last_game_update_send_sec.count() >= send_period_sec) {
+                print_current_time();
+                printf("~~~> sending game state\n");
+                send_game_state(physics, client_id_to_camera);
+                time_of_last_game_update_send = current_time;
+            } else {
+                printf("not enough time elapsed yet\n");
+            }
+        }
     }
 
     enet_host_destroy(server);
@@ -171,29 +213,25 @@ int ServerNetwork::start_receive_loop(InputSnapshot *input_snapshot, Physics *ph
 /**
  * \note that this is run in a thread, but only uses read-only on the physics world
  */
-std::function<void(double)>
-ServerNetwork::game_state_send_step_closure(Physics *physics,
-                                            std::unordered_map<uint64_t, Camera> &client_id_to_camera) {
-    return [physics, &client_id_to_camera, this](double time_since_last_update) {
-        std::vector<PlayerData> game_update;
-        for (const auto &pair : physics->client_id_to_physics_character) {
-            uint64_t client_id = pair.first;
-            JPH::Ref<JPH::CharacterVirtual> character = pair.second;
-            Camera camera = client_id_to_camera[client_id];
-            JPH::Vec3 character_position = character->GetPosition();
-            PlayerData player_data = {
-                client_id,        character_position.GetX(), character_position.GetY(), character_position.GetZ(),
-                camera.yaw_angle, camera.pitch_angle};
-            game_update.push_back(player_data);
-        }
+void ServerNetwork::send_game_state(Physics *physics, std::unordered_map<uint64_t, Camera> &client_id_to_camera) {
+    std::vector<PlayerData> game_update;
+    for (const auto &pair : physics->client_id_to_physics_character) {
+        uint64_t client_id = pair.first;
+        JPH::Ref<JPH::CharacterVirtual> character = pair.second;
+        Camera camera = client_id_to_camera[client_id];
+        JPH::Vec3 character_position = character->GetPosition();
+        PlayerData player_data = {
+            client_id,        character_position.GetX(), character_position.GetY(), character_position.GetZ(),
+            camera.yaw_angle, camera.pitch_angle};
+        game_update.push_back(player_data);
+    }
 
-        // Convert the vector to raw data
-        size_t game_update_size = game_update.size() * sizeof(PlayerData);
-        char *raw_data = new char[game_update_size];
-        std::memcpy(raw_data, game_update.data(), game_update_size);
-        ENetPacket *packet = enet_packet_create(raw_data, game_update_size, 0);
-        enet_host_broadcast(this->server, 0, packet);
-        // enet_host_flush(this->server);
-        delete[] raw_data;
-    };
+    // Convert the vector to raw data
+    size_t game_update_size = game_update.size() * sizeof(PlayerData);
+    char *raw_data = new char[game_update_size];
+    std::memcpy(raw_data, game_update.data(), game_update_size);
+    ENetPacket *packet = enet_packet_create(raw_data, game_update_size, 0);
+    enet_host_broadcast(this->server, 0, packet);
+    // enet_host_flush(this->server);
+    delete[] raw_data;
 }

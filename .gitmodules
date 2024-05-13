@@ -94,3 +94,6 @@
 [submodule "server/interaction/mouse"]
 	path = server/interaction/mouse
 	url = git@github.com:opengl-toolbox/mouse.git
+[submodule "client/thread_safe_queue"]
+	path = client/thread_safe_queue
+	url = git@github.com:opengl-toolbox/thread_safe_queue.git

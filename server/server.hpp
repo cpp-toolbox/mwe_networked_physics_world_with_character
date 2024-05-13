@@ -40,12 +40,11 @@ class ServerNetwork {
     ServerNetwork();
     unsigned int port = 7777;
     ENetHost *server;
-    int start_receive_loop(InputSnapshot *input_snapshot, Physics *physics,
+    int start_network_loop(int send_frequency_hz, InputSnapshot *input_snapshot, Physics *physics,
                            std::unordered_map<uint64_t, Camera> &client_id_to_camera,
                            std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
                            ThreadSafeQueue<InputSnapshot> &input_snapshot_queue);
-    std::function<void(double)> game_state_send_step_closure(Physics *physics,
-                                                             std::unordered_map<uint64_t, Camera> &client_id_to_camera);
+    void send_game_state(Physics *physics, std::unordered_map<uint64_t, Camera> &client_id_to_camera);
     void remove_client_data_from_engine(ENetEvent disconnect_event, Physics *physics,
                                         std::unordered_map<uint64_t, Camera> &client_id_to_camera,
                                         std::unordered_map<uint64_t, Mouse> &client_id_to_mouse);

@@ -4,18 +4,9 @@
 #include "enet.h"
 #include "input_snapshot/input_snapshot.hpp"
 #include "interaction/camera/camera.hpp"
+#include "thread_safe_queue/thread_safe_queue.hpp"
+#include "character_data.hpp"
 #include <string>
-
-// BAD DON"T PUT THIS HERE NEEDS TO GO IN SUBMODULE SO
-// STAYS SYNCED BETWEEN CLIENT AND SERVER
-struct PlayerData {
-    uint64_t client_id;
-    float character_x_position;
-    float character_y_position;
-    float character_z_position;
-    double camera_yaw_angle;
-    double camera_pitch_angle;
-};
 
 class ClientNetwork {
   public:
@@ -27,12 +18,12 @@ class ClientNetwork {
     ENetPeer *server_connection;
     std::string server_ip_address = "127.0.0.1";
     int server_port = 7777;
-    void start_input_sending_loop();
-    int start_game_state_receive_loop(glm::vec3 *character_position, Camera *camera);
+    int start_network_loop(int send_frequency_hz,
+                           std::unordered_map<uint64_t, PlayerData> &client_id_to_character_data);
+    void send_input_snapshot();
     void initialize_client_network();
     void attempt_to_connect_to_server();
     void disconnect_from_server();
-    void attempt_to_send_test_packet();
 
   private:
     unsigned int input_snapshot_to_binary();
