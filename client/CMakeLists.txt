@@ -14,7 +14,10 @@ add_executable(client
 	graphics/textured_model_loading/model_loading.cpp
 	graphics/shaders/CWL_uniform_binder_camera_pov.cpp
 
+	networked_input_snapshot/networked_input_snapshot.cpp
+
 	interaction/camera/camera.cpp
+	interaction/mouse/mouse.cpp
 
 	rate_limited_loop/rate_limited_loop.cpp
 	game_loop/game_loop.cpp 

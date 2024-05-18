@@ -3,8 +3,8 @@
 #include "shaders/CWL_uniform_binder_camera_pov.hpp"
 
 void render(GLuint shader_program_id, Model *map, Model &character_model,
-            std::unordered_map<uint64_t, PlayerData> &client_id_to_character_data, Camera *camera, int screen_width,
-            int screen_height, uint64_t *client_id) {
+            std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data, Camera *camera,
+            int screen_width, int screen_height, uint64_t *client_id) {
 
     if (*client_id == -1) {
         return; // we've not yet connected to the server, nothing to render.
@@ -24,7 +24,7 @@ void render(GLuint shader_program_id, Model *map, Model &character_model,
         client_id_to_translation_matrix; // excludes our own, we don't need to draw our own model
 
     for (auto pair : client_id_to_character_data) {
-        PlayerData player_data = pair.second;
+        NetworkedCharacterData player_data = pair.second;
         glm::vec3 glm_character_position(player_data.character_x_position, player_data.character_y_position,
                                          player_data.character_z_position);
         if (player_data.client_id == *client_id) {
@@ -51,7 +51,7 @@ void render(GLuint shader_program_id, Model *map, Model &character_model,
 }
 
 std::function<void()> render_closure(GLuint shader_program_id, Model *map, Model &character_model,
-                                     std::unordered_map<uint64_t, PlayerData> &client_id_to_character_data,
+                                     std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
                                      Camera *camera, GLFWwindow *window, unsigned int screen_width_px,
                                      unsigned int screen_height_px, uint64_t *client_id) {
     return [shader_program_id, map, window, camera, screen_width_px, screen_height_px, &character_model, client_id,

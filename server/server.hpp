@@ -2,7 +2,7 @@
 #define MWE_NETWORKING_SERVER_HPP
 
 #include "enet.h"
-#include "input_snapshot/input_snapshot.hpp"
+#include "networked_input_snapshot/networked_input_snapshot.hpp"
 #include "interaction/mouse/mouse.hpp"
 #include "interaction/physics/physics.hpp"
 #include "interaction/camera/camera.hpp"
@@ -26,25 +26,21 @@ class UniqueIDGenerator {
                  // needed atm because this isn't being acces through multiple threads
 };
 
-struct PlayerData {
-    uint64_t client_id;
-    float character_x_position;
-    float character_y_position;
-    float character_z_position;
-    double camera_yaw_angle;
-    double camera_pitch_angle;
-};
-
 class ServerNetwork {
   public:
     ServerNetwork();
     unsigned int port = 7777;
     ENetHost *server;
-    int start_network_loop(int send_frequency_hz, InputSnapshot *input_snapshot, Physics *physics,
-                           std::unordered_map<uint64_t, Camera> &client_id_to_camera,
-                           std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
-                           ThreadSafeQueue<InputSnapshot> &input_snapshot_queue);
-    void send_game_state(Physics *physics, std::unordered_map<uint64_t, Camera> &client_id_to_camera);
+    int start_network_loop(
+        int send_frequency_hz, NetworkedInputSnapshot *input_snapshot, Physics *physics,
+        std::unordered_map<uint64_t, Camera> &client_id_to_camera,
+        std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
+        std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot,
+        ThreadSafeQueue<NetworkedInputSnapshot> &input_snapshot_queue);
+    void send_game_state(
+        Physics *physics, std::unordered_map<uint64_t, Camera> &client_id_to_camera,
+        std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot);
+
     void remove_client_data_from_engine(ENetEvent disconnect_event, Physics *physics,
                                         std::unordered_map<uint64_t, Camera> &client_id_to_camera,
                                         std::unordered_map<uint64_t, Mouse> &client_id_to_mouse);

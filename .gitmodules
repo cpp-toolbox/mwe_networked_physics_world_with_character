@@ -10,9 +10,6 @@
 [submodule "client/external_libraries/glad_opengl_3.3_core"]
 	path = client/external_libraries/glad_opengl_3.3_core
 	url = git@github.com:opengl-toolbox/glad_opengl_3.3_core.git
-[submodule "client/input_snapshot"]
-	path = client/input_snapshot
-	url = git@github.com:opengl-toolbox/input_snapshot.git
 [submodule "client/game_loop"]
 	path = client/game_loop
 	url = git@github.com:opengl-toolbox/game_loop.git
@@ -31,9 +28,6 @@
 [submodule "client/rate_limited_loop"]
 	path = client/rate_limited_loop
 	url = git@github.com:opengl-toolbox/rate_limited_loop.git
-[submodule "server/input_snapshot"]
-	path = server/input_snapshot
-	url = git@github.com:opengl-toolbox/input_snapshot.git
 [submodule "server/rate_limited_loop"]
 	path = server/rate_limited_loop
 	url = git@github.com:opengl-toolbox/rate_limited_loop.git
@@ -97,3 +91,21 @@
 [submodule "client/thread_safe_queue"]
 	path = client/thread_safe_queue
 	url = git@github.com:opengl-toolbox/thread_safe_queue.git
+[submodule "client/expiring_data_container"]
+	path = client/expiring_data_container
+	url = git@github.com:opengl-toolbox/expiring_data_container.git
+[submodule "client/networked_input_snapshot"]
+	path = client/networked_input_snapshot
+	url = git@github.com:opengl-toolbox/networked_input_snapshot.git
+[submodule "client/interaction/mouse"]
+	path = client/interaction/mouse
+	url = git@github.com:opengl-toolbox/mouse.git
+[submodule "client/networked_character_data"]
+	path = client/networked_character_data
+	url = git@github.com:opengl-toolbox/networked_character_data.git
+[submodule "server/networked_character_data"]
+	path = server/networked_character_data
+	url = git@github.com:opengl-toolbox/networked_character_data.git
+[submodule "server/networked_input_snapshot"]
+	path = server/networked_input_snapshot
+	url = git@github.com:opengl-toolbox/networked_input_snapshot.git

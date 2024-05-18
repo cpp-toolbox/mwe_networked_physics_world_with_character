@@ -1,7 +1,9 @@
 #include "server.hpp"
 #include "interaction/physics/physics.hpp"
 #include "thread_safe_queue.hpp"
+#include "networked_character_data/networked_character_data.hpp"
 #include <chrono>
+#include <cstdint>
 #include <stdexcept>
 #include <stdio.h>
 #include <string>
@@ -24,7 +26,7 @@ void print_current_time() {
            milliseconds.count());
 }
 
-void set_inputs_to_false(InputSnapshot *input_snapshot) {
+void set_inputs_to_false(NetworkedInputSnapshot *input_snapshot) {
     input_snapshot->left_pressed = false;
     input_snapshot->right_pressed = false;
     input_snapshot->forward_pressed = false;
@@ -32,7 +34,8 @@ void set_inputs_to_false(InputSnapshot *input_snapshot) {
     input_snapshot->jump_pressed = false;
 }
 
-void write_binary_input_snapshot_to_input_snapshot(unsigned int binary_input_snapshot, InputSnapshot *input_snapshot) {
+void write_binary_input_snapshot_to_input_snapshot(unsigned int binary_input_snapshot,
+                                                   NetworkedInputSnapshot *input_snapshot) {
     std::string temp[5] = {"l", "r", "f", "b", "j"};
 
     set_inputs_to_false(input_snapshot);
@@ -112,10 +115,12 @@ void ServerNetwork::remove_client_data_from_engine(ENetEvent disconnect_event, P
     }
 }
 
-int ServerNetwork::start_network_loop(int send_frequency_hz, InputSnapshot *input_snapshot, Physics *physics,
-                                      std::unordered_map<uint64_t, Camera> &client_id_to_camera,
-                                      std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
-                                      ThreadSafeQueue<InputSnapshot> &input_snapshot_queue) {
+int ServerNetwork::start_network_loop(
+    int send_frequency_hz, NetworkedInputSnapshot *input_snapshot, Physics *physics,
+    std::unordered_map<uint64_t, Camera> &client_id_to_camera, std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
+    std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot,
+    ThreadSafeQueue<NetworkedInputSnapshot> &input_snapshot_queue) {
+
     ENetEvent event;
 
     bool first_iteration = true;
@@ -152,7 +157,8 @@ int ServerNetwork::start_network_loop(int send_frequency_hz, InputSnapshot *inpu
             case ENET_EVENT_TYPE_RECEIVE: {
                 bool packet_is_input_snapshot = true;
                 if (packet_is_input_snapshot) {
-                    InputSnapshot received_input_snapshot = *reinterpret_cast<InputSnapshot *>(event.packet->data);
+                    NetworkedInputSnapshot received_input_snapshot =
+                        *reinterpret_cast<NetworkedInputSnapshot *>(event.packet->data);
                     print_current_time();
                     printf("<~~~ received id: %lu l: %b r: %b f: %b b: %b, j: %b, msx: %f, msy: %f \n",
                            received_input_snapshot.client_id, received_input_snapshot.left_pressed,
@@ -197,7 +203,8 @@ int ServerNetwork::start_network_loop(int send_frequency_hz, InputSnapshot *inpu
             if (time_since_last_game_update_send_sec.count() >= send_period_sec) {
                 print_current_time();
                 printf("~~~> sending game state\n");
-                send_game_state(physics, client_id_to_camera);
+                send_game_state(physics, client_id_to_camera,
+                                client_id_to_cihtems_of_last_server_processed_input_snapshot);
                 time_of_last_game_update_send = current_time;
             } else {
                 printf("not enough time elapsed yet\n");
@@ -212,22 +219,35 @@ int ServerNetwork::start_network_loop(int send_frequency_hz, InputSnapshot *inpu
 
 /**
  * \note that this is run in a thread, but only uses read-only on the physics world
+ * \todo this function should not get run until every character id in any mapping has processed
+ * at least one input snapshot, no because if it hasn't processed an input snapshot, it may just be as the player is
+ * falling in after spawning for the first ttime, on the client if they haven't processed any yet, simply just don't do
+ * reconciliation
  */
-void ServerNetwork::send_game_state(Physics *physics, std::unordered_map<uint64_t, Camera> &client_id_to_camera) {
-    std::vector<PlayerData> game_update;
+void ServerNetwork::send_game_state(
+    Physics *physics, std::unordered_map<uint64_t, Camera> &client_id_to_camera,
+    std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot) {
+
+    std::vector<NetworkedCharacterData> game_update;
     for (const auto &pair : physics->client_id_to_physics_character) {
         uint64_t client_id = pair.first;
         JPH::Ref<JPH::CharacterVirtual> character = pair.second;
         Camera camera = client_id_to_camera[client_id];
+        uint64_t cihtems_of_last_server_processed_input_snapshot =
+            client_id_to_cihtems_of_last_server_processed_input_snapshot[client_id];
         JPH::Vec3 character_position = character->GetPosition();
-        PlayerData player_data = {
-            client_id,        character_position.GetX(), character_position.GetY(), character_position.GetZ(),
-            camera.yaw_angle, camera.pitch_angle};
+        NetworkedCharacterData player_data = {client_id,
+                                              cihtems_of_last_server_processed_input_snapshot,
+                                              character_position.GetX(),
+                                              character_position.GetY(),
+                                              character_position.GetZ(),
+                                              camera.yaw_angle,
+                                              camera.pitch_angle};
         game_update.push_back(player_data);
     }
 
     // Convert the vector to raw data
-    size_t game_update_size = game_update.size() * sizeof(PlayerData);
+    size_t game_update_size = game_update.size() * sizeof(NetworkedCharacterData);
     char *raw_data = new char[game_update_size];
     std::memcpy(raw_data, game_update.data(), game_update_size);
     ENetPacket *packet = enet_packet_create(raw_data, game_update_size, 0);

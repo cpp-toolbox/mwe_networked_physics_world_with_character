@@ -1,8 +1,11 @@
+#include <chrono>
 #include <linux/input.h>
 #include <stdexcept>
 #include <stdio.h>
 #include "client.hpp"
-#include "input_snapshot/input_snapshot.hpp"
+#include "expiring_data_container/expiring_data_container.hpp"
+#include "networked_input_snapshot/networked_input_snapshot.hpp"
+#include "networked_character_data/networked_character_data.hpp"
 
 void print_current_time() {
     // Get the current time point
@@ -20,7 +23,7 @@ void print_current_time() {
            milliseconds.count());
 }
 
-ClientNetwork::ClientNetwork(InputSnapshot *input_snapshot) : input_snapshot(input_snapshot) {
+ClientNetwork::ClientNetwork(NetworkedInputSnapshot *input_snapshot) : input_snapshot(input_snapshot) {
     initialize_client_network();
 }
 ClientNetwork::~ClientNetwork() { disconnect_from_server(); }
@@ -74,8 +77,9 @@ void ClientNetwork::attempt_to_connect_to_server() {
     }
 }
 
-int ClientNetwork::start_network_loop(int send_frequency_hz,
-                                      std::unordered_map<uint64_t, PlayerData> &client_id_to_character_data) {
+int ClientNetwork::start_network_loop(int send_frequency_hz, Camera &camera, Mouse &mouse,
+                                      std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+                                      ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history) {
     ENetEvent event;
 
     bool first_iteration = true;
@@ -107,14 +111,55 @@ int ClientNetwork::start_network_loop(int send_frequency_hz,
 
                 bool client_id_received_already = id != -1;
                 if (client_id_received_already) { // everything after the client id is a game state update
-                    //
-                    // Extract the data
-                    PlayerData *game_update = reinterpret_cast<PlayerData *>(event.packet->data);
-                    size_t game_update_length = event.packet->dataLength / sizeof(PlayerData);
+
+                    NetworkedCharacterData *game_update =
+                        reinterpret_cast<NetworkedCharacterData *>(event.packet->data);
+                    size_t game_update_length = event.packet->dataLength / sizeof(NetworkedCharacterData);
 
                     for (size_t i = 0; i < game_update_length; ++i) {
-                        PlayerData player_data = game_update[i];
-                        client_id_to_character_data[player_data.client_id] = player_data;
+                        NetworkedCharacterData player_data = game_update[i];
+                        if (player_data.client_id == this->id) {
+
+                            // server is authorative (reconcile)
+                            camera.set_look_direction(
+                                client_id_to_character_data[player_data.client_id].camera_yaw_angle,
+                                client_id_to_character_data[player_data.client_id].camera_pitch_angle);
+
+                            if (player_data.cihtems_of_last_server_processed_input_snapshot == -1) {
+                                printf("got minus one BAD!\n");
+                            }
+
+                            auto ciht_of_last_server_processed_input_snapshot = std::chrono::steady_clock::duration(
+                                player_data.cihtems_of_last_server_processed_input_snapshot);
+
+                            // note that this has to match what we did in the expiring data container
+                            std::chrono::steady_clock::time_point reconstructed_time_point(
+                                ciht_of_last_server_processed_input_snapshot);
+
+                            std::vector<NetworkedInputSnapshot> snapshots_to_be_reprocessed =
+                                processed_input_snapshot_history.get_data_exceeding(reconstructed_time_point);
+
+                            // re-apply inputs
+                            printf("J~~~ about to re apply %zu snapshots out of %zu\n",
+                                   snapshots_to_be_reprocessed.size(), processed_input_snapshot_history.size());
+                            // processed_input_snapshot_history.print_state();
+                            for (auto snapshot_to_be_reprocessed : snapshots_to_be_reprocessed) {
+                                auto [change_in_yaw_angle, change_in_pitch_angle] =
+                                    mouse.get_yaw_pitch_deltas(snapshot_to_be_reprocessed.mouse_position_x,
+                                                               snapshot_to_be_reprocessed.mouse_position_y);
+                                // TODO this probably needs to be locked with a mutex so that a network and local update
+                                // can't occur at the same time for now I don't care.
+                                camera.update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
+                            }
+
+                            client_id_to_character_data[player_data.client_id] = player_data;
+                            // apply new changes, we have to do this because render uses this structure
+                            client_id_to_character_data[player_data.client_id].camera_yaw_angle = camera.yaw_angle;
+                            client_id_to_character_data[player_data.client_id].camera_pitch_angle = camera.pitch_angle;
+
+                        } else {
+                            client_id_to_character_data[player_data.client_id] = player_data;
+                        }
 
                         print_current_time();
                         printf("<~~~ received id: %lu is client: %b, pos: (%f, %f, %f) look: (%f, %f) \n",
@@ -165,8 +210,7 @@ int ClientNetwork::start_network_loop(int send_frequency_hz,
                 current_time - time_of_last_input_snapshot_send;
             if (time_since_last_input_snapshot_send_sec.count() >= send_period_sec) {
                 print_current_time();
-                printf("~~~> sending input snapshot\n");
-                send_input_snapshot();
+                send_input_snapshot(processed_input_snapshot_history);
                 time_of_last_input_snapshot_send = current_time;
             }
         }
@@ -180,12 +224,22 @@ int ClientNetwork::start_network_loop(int send_frequency_hz,
 /*
  * \pre this->id != -1
  */
-void ClientNetwork::send_input_snapshot() {
+void ClientNetwork::send_input_snapshot(
+    ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history) {
     assert(this->id != -1);
-    this->input_snapshot->client_id = this->id;
-    ENetPacket *packet =
-        enet_packet_create(this->input_snapshot, sizeof(InputSnapshot), 0); // 0 indicates unreliable packet
 
+    if (processed_input_snapshot_history.size() == 0) {
+        return; // nothing to do because there is no data to send, this should never occur.
+    }
+
+    NetworkedInputSnapshot most_recently_added_processed_snapshot = processed_input_snapshot_history.get_most_recent();
+    most_recently_added_processed_snapshot.client_id = this->id; // TODO this should be done somwhere else...
+    ENetPacket *packet = enet_packet_create(&most_recently_added_processed_snapshot, sizeof(NetworkedInputSnapshot),
+                                            0); // 0 indicates unreliable packet
+    //
+
+    printf("~~~> sending input snapshot, it has timestamp %lu\n",
+           most_recently_added_processed_snapshot.client_input_history_insertion_time_epoch_ms);
     // printf("msx %f msy %f\n", this->input_snapshot->mouse_position_x,
     // this->input_snapshot->mouse_position_y);
     enet_peer_send(server_connection, 0, packet);

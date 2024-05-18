@@ -1,6 +1,6 @@
 #include <thread>
 #include "server.hpp"
-#include "input_snapshot/input_snapshot.hpp"
+#include "networked_input_snapshot/networked_input_snapshot.hpp"
 #include "rate_limited_loop/rate_limited_loop.hpp"
 #include "interaction/physics/physics.hpp"
 #include "interaction/camera/camera.hpp"
@@ -17,8 +17,8 @@
 #include <ftxui/screen/screen.hpp>
 
 void update_player_velocity(JPH::Ref<JPH::CharacterVirtual> &character, Camera &camera, Mouse &mouse,
-                            InputSnapshot &input_snapshot, float movement_acceleration, double time_since_last_update,
-                            JPH::Vec3 gravity) {
+                            NetworkedInputSnapshot &input_snapshot, float movement_acceleration,
+                            double time_since_last_update, JPH::Vec3 gravity) {
     auto [change_in_yaw_angle, change_in_pitch_angle] =
         mouse.get_yaw_pitch_deltas(input_snapshot.mouse_position_x, input_snapshot.mouse_position_y);
     camera.update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
@@ -58,15 +58,16 @@ void update_player_velocity(JPH::Ref<JPH::CharacterVirtual> &character, Camera &
     character->SetLinearVelocity(convert_vec3_from_glm_to_jolt(updated_velocity));
 }
 
-std::function<void(double)> physics_step_closure(InputSnapshot *input_snapshot, Physics *physics,
-                                                 std::unordered_map<uint64_t, Camera> &client_id_to_camera,
-                                                 std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
-                                                 float movement_acceleration) {
-    return [input_snapshot, physics, &client_id_to_camera, &client_id_to_mouse,
-            movement_acceleration](double time_since_last_update) {
+std::function<void(double)> physics_step_closure(
+    NetworkedInputSnapshot *input_snapshot, Physics *physics, std::unordered_map<uint64_t, Camera> &client_id_to_camera,
+    std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
+    std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot,
+    float movement_acceleration) {
+    return [input_snapshot, physics, &client_id_to_camera, &client_id_to_mouse, movement_acceleration,
+            &client_id_to_cihtems_of_last_server_processed_input_snapshot](double time_since_last_update) {
         while (!physics->input_snapshot_queue.empty()) {
             // InputSnapshot popped_input_snapshot = physics->input_snapshot_queue.front();
-            InputSnapshot popped_input_snapshot = physics->input_snapshot_queue.pop();
+            NetworkedInputSnapshot popped_input_snapshot = physics->input_snapshot_queue.pop();
             uint64_t client_id = popped_input_snapshot.client_id;
             // printf("    draining queue and updating player %lu\n", client_id);
             JPH::Ref<JPH::CharacterVirtual> &physics_character = physics->client_id_to_physics_character[client_id];
@@ -74,6 +75,9 @@ std::function<void(double)> physics_step_closure(InputSnapshot *input_snapshot, 
             Mouse &mouse = client_id_to_mouse[client_id];
             update_player_velocity(physics_character, camera, mouse, popped_input_snapshot, movement_acceleration,
                                    time_since_last_update, physics->physics_system.GetGravity());
+            printf("cihtems %d\n", popped_input_snapshot.client_input_history_insertion_time_epoch_ms);
+            client_id_to_cihtems_of_last_server_processed_input_snapshot[client_id] =
+                popped_input_snapshot.client_input_history_insertion_time_epoch_ms;
         }
         physics->update(time_since_last_update);
     };
@@ -152,11 +156,13 @@ int start_terminal_interface(double *physics_rate_hz, double *game_state_send_ra
 
 int main() {
     ServerNetwork server_network;
-    InputSnapshot input_snapshot;
+    NetworkedInputSnapshot input_snapshot;
     std::unordered_map<uint64_t, Camera> client_id_to_camera;
     std::unordered_map<uint64_t, Mouse> client_id_to_mouse;
+    std::unordered_map<uint64_t, uint64_t> client_id_to_cihtems_of_last_server_processed_input_snapshot;
     const float movement_acceleration = 15.0f;
-    const int physics_and_network_send_rate_hz = 60;
+    const int physics_rate_hz = 60;
+    const int network_send_rate_hz = 40;
 
     Physics physics;
     Model map("../assets/maps/ground_test.obj");
@@ -164,18 +170,19 @@ int main() {
 
     RateLimitedLoop physics_loop;
     std::function<void(double)> physics_step =
-        physics_step_closure(&input_snapshot, &physics, client_id_to_camera, client_id_to_mouse, movement_acceleration);
+        physics_step_closure(&input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
+                             client_id_to_cihtems_of_last_server_processed_input_snapshot, movement_acceleration);
     std::function<bool()> termination_condition = []() { return false; };
     std::function<void()> start_loop = [&]() {
-        physics_loop.start(physics_and_network_send_rate_hz, physics_step, termination_condition);
+        physics_loop.start(physics_rate_hz, physics_step, termination_condition);
     };
     std::thread physics_thread(start_loop);
     physics_thread.detach();
 
-    auto start_network_loop = [&server_network, &input_snapshot, &physics, &client_id_to_camera,
-                               &client_id_to_mouse]() {
-        server_network.start_network_loop(40, &input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
-                                          physics.input_snapshot_queue);
+    auto start_network_loop = [&]() {
+        server_network.start_network_loop(
+            network_send_rate_hz, &input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
+            client_id_to_cihtems_of_last_server_processed_input_snapshot, physics.input_snapshot_queue);
     };
 
     bool using_tui = false;
