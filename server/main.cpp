@@ -2,7 +2,7 @@
 #include "server.hpp"
 #include "networked_input_snapshot/networked_input_snapshot.hpp"
 #include "rate_limited_loop/rate_limited_loop.hpp"
-#include "interaction/physics/physics.hpp"
+#include "interaction/multiplayer_physics/physics.hpp"
 #include "interaction/camera/camera.hpp"
 #include "model_loading/model_loading.hpp"
 #include "math/conversions.hpp"

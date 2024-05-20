@@ -1,9 +1,6 @@
 [submodule "client/organizational_tools"]
 	path = client/organizational_tools
 	url = git@github.com:opengl-toolbox/organizational_tools.git
-[submodule "client/window"]
-	path = client/window
-	url = git@github.com:opengl-toolbox/window.git
 [submodule "client/external_libraries/glfw"]
 	path = client/external_libraries/glfw
 	url = https://github.com/glfw/glfw
@@ -34,9 +31,6 @@
 [submodule "server/external_libraries/glm"]
 	path = server/external_libraries/glm
 	url = git@github.com:g-truc/glm.git
-[submodule "server/interaction/physics"]
-	path = server/interaction/physics
-	url = git@github.com:opengl-toolbox/physics.git
 [submodule "server/external_libraries/JoltPhysics"]
 	path = server/external_libraries/JoltPhysics
 	url = git@github.com:jrouwe/JoltPhysics.git
@@ -109,3 +103,9 @@
 [submodule "server/networked_input_snapshot"]
 	path = server/networked_input_snapshot
 	url = git@github.com:opengl-toolbox/networked_input_snapshot.git
+[submodule "server/interaction/multiplayer_physics"]
+	path = server/interaction/multiplayer_physics
+	url = git@github.com:opengl-toolbox/multiplayer_physics.git
+[submodule "client/multiplayer_window"]
+	path = client/multiplayer_window
+	url = git@github.com:opengl-toolbox/multiplayer_window.git

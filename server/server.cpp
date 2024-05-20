@@ -1,5 +1,4 @@
 #include "server.hpp"
-#include "interaction/physics/physics.hpp"
 #include "thread_safe_queue.hpp"
 #include "networked_character_data/networked_character_data.hpp"
 #include <chrono>

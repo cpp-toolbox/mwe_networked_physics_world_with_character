@@ -7,7 +7,7 @@ add_executable(client
 	main.cpp 
 
 	client.cpp
-	window/window.cpp 
+	multiplayer_window/window.cpp 
 
 	graphics/graphics.cpp
 	graphics/shader_pipeline/shader_pipeline.cpp

@@ -4,7 +4,7 @@
 #include "enet.h"
 #include "networked_input_snapshot/networked_input_snapshot.hpp"
 #include "interaction/mouse/mouse.hpp"
-#include "interaction/physics/physics.hpp"
+#include "interaction/multiplayer_physics/physics.hpp"
 #include "interaction/camera/camera.hpp"
 #include "thread_safe_queue.hpp"
 

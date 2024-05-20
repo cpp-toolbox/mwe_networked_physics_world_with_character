@@ -3,7 +3,7 @@
 #include "graphics/textured_model_loading/model_loading.hpp"
 #include "graphics/shader_pipeline/shader_pipeline.hpp"
 #include "networked_input_snapshot/networked_input_snapshot.hpp"
-#include "window/window.hpp"
+#include "multiplayer_window/window.hpp"
 #include "graphics/graphics.hpp"
 #include "expiring_data_container/expiring_data_container.hpp"
 #include "interaction/mouse/mouse.hpp"

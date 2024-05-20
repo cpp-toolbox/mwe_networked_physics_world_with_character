@@ -7,7 +7,7 @@ add_executable(server
 	main.cpp 
 	server.cpp
 
-	interaction/physics/physics.cpp
+	interaction/multiplayer_physics/physics.cpp
 	interaction/camera/camera.cpp
 	interaction/mouse/mouse.cpp
 	
