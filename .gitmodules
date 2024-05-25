@@ -109,3 +109,12 @@
 [submodule "client/multiplayer_window"]
 	path = client/multiplayer_window
 	url = git@github.com:opengl-toolbox/multiplayer_window.git
+[submodule "client/interaction/multiplayer_physics"]
+	path = client/interaction/multiplayer_physics
+	url = git@github.com:opengl-toolbox/multiplayer_physics.git
+[submodule "client/external_libraries/JoltPhysics"]
+	path = client/external_libraries/JoltPhysics
+	url = git@github.com:jrouwe/JoltPhysics.git
+[submodule "client/math"]
+	path = client/math
+	url = git@github.com:opengl-toolbox/math.git

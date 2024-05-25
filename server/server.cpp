@@ -140,10 +140,11 @@ int ServerNetwork::start_network_loop(
                                                         ENET_PACKET_FLAG_RELIABLE);
                 enet_peer_send(event.peer, 0, packet);
 
+                // create data for the newly connected player
                 connected_clients[new_id] = {event.peer, new_id};
                 Camera camera;
-                client_id_to_camera[new_id] = camera;
                 Mouse mouse;
+                client_id_to_camera[new_id] = camera;
                 client_id_to_mouse[new_id] = mouse;
                 physics->create_character(new_id);
 
@@ -235,11 +236,15 @@ void ServerNetwork::send_game_state(
         uint64_t cihtems_of_last_server_processed_input_snapshot =
             client_id_to_cihtems_of_last_server_processed_input_snapshot[client_id];
         JPH::Vec3 character_position = character->GetPosition();
+        JPH::Vec3 character_velocity = character->GetLinearVelocity();
         NetworkedCharacterData player_data = {client_id,
                                               cihtems_of_last_server_processed_input_snapshot,
                                               character_position.GetX(),
                                               character_position.GetY(),
                                               character_position.GetZ(),
+                                              character_velocity.GetX(),
+                                              character_velocity.GetY(),
+                                              character_velocity.GetZ(),
                                               camera.yaw_angle,
                                               camera.pitch_angle};
         game_update.push_back(player_data);

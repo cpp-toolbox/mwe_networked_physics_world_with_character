@@ -1,13 +1,32 @@
-- figure out why cpu usage is high on client and server, probably has to do with spinning calls on enet?
+working on adding in physics based client side interpolation
+- store the delta used on a given snapshot
+- make a function that can be re-used everywhere so we can know it happens in the same way everywhere, client server and everything.
+- when the update function gets run on the client we need to use the update function there.
 
-- see what performance is like using sleep loops
+- need to run the physics update on the client, and when the server message comes in we need to set the position of the player
+- and then re-run all of the updates that were used up until that point, using their respective time deltas in the loop,
+that should boil down to calling the update function there with the time deltas right?
+- right now just make it work on the main player, so with respect to that when an update comes in we 
 
-- make sure I'm using packets correctly, do I have to delete them, is it alright to use flush to send the packets... 
-- start by rendering something basic, so that I know graphics is working over the network
-- add in text rendering and draw information to the screen about the rates things are being sent and received
-- add in jolt physics on server side, and use that to draw something basic
-- render a map and a ball which you can roll around or something along those lines
-- add client side interpolation and reconciliation
+in order to do any of this we have to have physics system running on the client so we will use the multiplayer physics for that so that we can keep track of all virtual characters, when its time to update we get the one which is with the client id and update that one then in render we will use the position necessary.
 
-resources:
-- https://github.com/google/flatbuffers?tab=readme-ov-file
+step one: add multiplayer physics to the client
+step two: load in the data into the physics simulatino like on the server
+step 3: when update happens, find the character controller which we need and use that to update it's position based on keys and mouse pressed.
+step 4: when update comes back from server re-run update in the same way (on our id character)
+
+the local physics doesn't require a queue because we just run on it instantly, and it's not from multiple sources.
+
+by doing that we don't care about any of the other players but we should get a smooth experience.
+
+
+client
+
+server:
+network thread
+- receives and sends updates
+- updates get put into the physics update queue
+physics thread
+- empties the update queue and applies updates to respective characters
+- ticks at it's own rate, uses a queue so that all input snapshots are consumed, else using a pointer to data and might miss updates. that's why the client needs this too.
+

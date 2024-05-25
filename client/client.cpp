@@ -6,6 +6,7 @@
 #include "expiring_data_container/expiring_data_container.hpp"
 #include "networked_input_snapshot/networked_input_snapshot.hpp"
 #include "networked_character_data/networked_character_data.hpp"
+#include "character_update/character_update.hpp"
 
 void print_current_time() {
     // Get the current time point
@@ -56,6 +57,8 @@ void ClientNetwork::attempt_to_connect_to_server() {
     ENetEvent event = {static_cast<ENetEventType>(0)};
     server_connection = {0};
     /* Connect to some.server.net:1234. */
+    // enet_address_set_host(&address, "142.67.250.4");
+    // address.port = 9999;
     enet_address_set_host(&address, "127.0.0.1");
     address.port = 7777;
     /* Initiate the connection, allocating the two channels 0 and 1. */
@@ -77,7 +80,53 @@ void ClientNetwork::attempt_to_connect_to_server() {
     }
 }
 
-int ClientNetwork::start_network_loop(int send_frequency_hz, Camera &camera, Mouse &mouse,
+void ClientNetwork::reconcile_local_game_state_with_server_update(
+    NetworkedCharacterData &networked_character_data, Physics &physics, Camera &camera, Mouse &mouse,
+    std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+    ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history
+
+) {
+    auto ciht_of_last_server_processed_input_snapshot =
+        std::chrono::steady_clock::duration(networked_character_data.cihtems_of_last_server_processed_input_snapshot);
+
+    // note that this has to match what we did in the expiring data container
+    std::chrono::steady_clock::time_point reconstructed_time_point(ciht_of_last_server_processed_input_snapshot);
+
+    std::vector<NetworkedInputSnapshot> snapshots_to_be_reprocessed =
+        processed_input_snapshot_history.get_data_exceeding(reconstructed_time_point);
+
+    JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+        physics.client_id_to_physics_character[networked_character_data.client_id];
+    const float movement_acceleration = 15.0f;
+
+    // re-apply inputs
+    printf("J~~~ about to re apply %zu snapshots out of %zu\n", snapshots_to_be_reprocessed.size(),
+           processed_input_snapshot_history.size());
+    // processed_input_snapshot_history.print_state();
+    //
+    reconcile_mutex.lock();
+    for (NetworkedInputSnapshot snapshot_to_be_reprocessed : snapshots_to_be_reprocessed) {
+        // TODO this probably needs to be locked with a mutex so that a network and local update
+        // can't occur at the same time for now I don't care.
+        update_player_camera_and_velocity(client_physics_character, camera, mouse, snapshot_to_be_reprocessed,
+                                          movement_acceleration,
+                                          snapshot_to_be_reprocessed.time_delta_used_for_client_side_processing_ms,
+                                          physics.physics_system.GetGravity());
+        physics.update(snapshot_to_be_reprocessed.time_delta_used_for_client_side_processing_ms);
+    }
+    reconcile_mutex.unlock();
+
+    // client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
+    // apply new changes, we have to do this because render uses this structure
+    uint64_t client_id = networked_character_data.client_id;
+    client_id_to_character_data[client_id].camera_yaw_angle = camera.yaw_angle;
+    client_id_to_character_data[client_id].camera_pitch_angle = camera.pitch_angle;
+    client_id_to_character_data[client_id].character_x_position = client_physics_character->GetPosition().GetX();
+    client_id_to_character_data[client_id].character_y_position = client_physics_character->GetPosition().GetY();
+    client_id_to_character_data[client_id].character_z_position = client_physics_character->GetPosition().GetZ();
+}
+
+int ClientNetwork::start_network_loop(int send_frequency_hz, Physics &physics, Camera &camera, Mouse &mouse,
                                       std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
                                       ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history) {
     ENetEvent event;
@@ -102,71 +151,70 @@ int ClientNetwork::start_network_loop(int send_frequency_hz, Camera &camera, Mou
                 if (event.packet->dataLength == sizeof(uint64_t)) { // client id
                     uint64_t receivedID = *reinterpret_cast<const uint64_t *>(event.packet->data);
                     this->id = receivedID;
+                    physics.create_character(receivedID);
                     printf("Received unique ID from server: %lu\n", receivedID);
                 }
 
-                // printf("A packet of length %lu containing %s was received from %s on "
-                //        "channel %u.\n",
-                //        event.packet->dataLength, event.packet->data, event.peer->data, event.channelID);
-
                 bool client_id_received_already = id != -1;
                 if (client_id_received_already) { // everything after the client id is a game state update
-
                     NetworkedCharacterData *game_update =
                         reinterpret_cast<NetworkedCharacterData *>(event.packet->data);
                     size_t game_update_length = event.packet->dataLength / sizeof(NetworkedCharacterData);
 
                     for (size_t i = 0; i < game_update_length; ++i) {
-                        NetworkedCharacterData player_data = game_update[i];
-                        if (player_data.client_id == this->id) {
+                        NetworkedCharacterData networked_character_data = game_update[i];
 
-                            // server is authorative (reconcile)
-                            camera.set_look_direction(
-                                client_id_to_character_data[player_data.client_id].camera_yaw_angle,
-                                client_id_to_character_data[player_data.client_id].camera_pitch_angle);
+                        // bool client_has_given_character = physics.
+                        //
+                        // if (networked_character_data.client_id
+                        //
 
-                            if (player_data.cihtems_of_last_server_processed_input_snapshot == -1) {
+                        if (networked_character_data.client_id == this->id) {
+
+                            if (networked_character_data.cihtems_of_last_server_processed_input_snapshot == -1) {
                                 printf("got minus one BAD!\n");
                             }
 
-                            auto ciht_of_last_server_processed_input_snapshot = std::chrono::steady_clock::duration(
-                                player_data.cihtems_of_last_server_processed_input_snapshot);
+                            // server is authorative blindly apply the update.
+                            client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
+                            JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+                                physics.client_id_to_physics_character[networked_character_data.client_id];
 
-                            // note that this has to match what we did in the expiring data container
-                            std::chrono::steady_clock::time_point reconstructed_time_point(
-                                ciht_of_last_server_processed_input_snapshot);
+                            JPH::Vec3 authoriative_position = {networked_character_data.character_x_position,
+                                                               networked_character_data.character_y_position,
+                                                               networked_character_data.character_z_position};
 
-                            std::vector<NetworkedInputSnapshot> snapshots_to_be_reprocessed =
-                                processed_input_snapshot_history.get_data_exceeding(reconstructed_time_point);
+                            JPH::Vec3 authoriative_velocity = {networked_character_data.character_x_velocity,
+                                                               networked_character_data.character_y_velocity,
+                                                               networked_character_data.character_z_velocity};
 
-                            // re-apply inputs
-                            printf("J~~~ about to re apply %zu snapshots out of %zu\n",
-                                   snapshots_to_be_reprocessed.size(), processed_input_snapshot_history.size());
-                            // processed_input_snapshot_history.print_state();
-                            for (auto snapshot_to_be_reprocessed : snapshots_to_be_reprocessed) {
-                                auto [change_in_yaw_angle, change_in_pitch_angle] =
-                                    mouse.get_yaw_pitch_deltas(snapshot_to_be_reprocessed.mouse_position_x,
-                                                               snapshot_to_be_reprocessed.mouse_position_y);
-                                // TODO this probably needs to be locked with a mutex so that a network and local update
-                                // can't occur at the same time for now I don't care.
-                                camera.update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
-                            }
+                            client_physics_character->SetPosition(authoriative_position);
+                            client_physics_character->SetLinearVelocity(authoriative_velocity);
 
-                            client_id_to_character_data[player_data.client_id] = player_data;
-                            // apply new changes, we have to do this because render uses this structure
-                            client_id_to_character_data[player_data.client_id].camera_yaw_angle = camera.yaw_angle;
-                            client_id_to_character_data[player_data.client_id].camera_pitch_angle = camera.pitch_angle;
+                            // camera.set_look_direction(networked_character_data.camera_yaw_angle,
+                            // networked_character_data.camera_pitch_angle);
 
-                        } else {
-                            client_id_to_character_data[player_data.client_id] = player_data;
+                            // JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+                            //     physics.client_id_to_physics_character[networked_character_data.client_id];
+
+                            // client_physics_character.SetPosition();
+
+                            // now account for the local updates that have ocurred since then
+                            reconcile_local_game_state_with_server_update(networked_character_data, physics, camera,
+                                                                          mouse, client_id_to_character_data,
+                                                                          processed_input_snapshot_history);
+
+                        } else { // this is not the client player, just slam that data in.
+                            client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
                         }
 
                         print_current_time();
                         printf("<~~~ received id: %lu is client: %b, pos: (%f, %f, %f) look: (%f, %f) \n",
-                               player_data.client_id, player_data.client_id == this->id,
-                               player_data.character_x_position, player_data.character_y_position,
-                               player_data.character_z_position, player_data.camera_yaw_angle,
-                               player_data.camera_pitch_angle);
+                               networked_character_data.client_id, networked_character_data.client_id == this->id,
+                               networked_character_data.character_x_position,
+                               networked_character_data.character_y_position,
+                               networked_character_data.character_z_position, networked_character_data.camera_yaw_angle,
+                               networked_character_data.camera_pitch_angle);
                         // if (player_data.client_id == this->id) {
                         //     printf("got %f %f %f\n", player_data.character_x_position,
                         //     player_data.character_y_position,
@@ -174,7 +222,8 @@ int ClientNetwork::start_network_loop(int send_frequency_hz, Camera &camera, Mou
                         //     character_position->x = player_data.character_x_position;
                         //     character_position->y = player_data.character_y_position;
                         //     character_position->z = player_data.character_z_position;
-                        //     camera->set_look_direction(player_data.camera_yaw_angle, player_data.camera_pitch_angle);
+                        //     camera->set_look_direction(player_data.camera_yaw_angle,
+                        //     player_data.camera_pitch_angle);
                         // }
                     }
                 }
@@ -203,8 +252,8 @@ int ClientNetwork::start_network_loop(int send_frequency_hz, Camera &camera, Mou
             time_of_last_input_snapshot_send = std::chrono::steady_clock::now();
             first_iteration = false;
         } else if (this->id != -1) {
-            // if we 're not in the first iteration and we've received our client id from the server, then we can send
-            // out data. otherwise keep waiting
+            // if we 're not in the first iteration and we've received our client id from the server, then we can
+            // send out data. otherwise keep waiting
             auto current_time = std::chrono::steady_clock::now();
             std::chrono::duration<double> time_since_last_input_snapshot_send_sec =
                 current_time - time_of_last_input_snapshot_send;

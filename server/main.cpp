@@ -16,9 +16,9 @@
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>
 
-void update_player_velocity(JPH::Ref<JPH::CharacterVirtual> &character, Camera &camera, Mouse &mouse,
-                            NetworkedInputSnapshot &input_snapshot, float movement_acceleration,
-                            double time_since_last_update, JPH::Vec3 gravity) {
+void update_player_camera_and_velocity(JPH::Ref<JPH::CharacterVirtual> &character, Camera &camera, Mouse &mouse,
+                                       NetworkedInputSnapshot &input_snapshot, float movement_acceleration,
+                                       double time_since_last_update, JPH::Vec3 gravity) {
     auto [change_in_yaw_angle, change_in_pitch_angle] =
         mouse.get_yaw_pitch_deltas(input_snapshot.mouse_position_x, input_snapshot.mouse_position_y);
     camera.update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
@@ -73,8 +73,9 @@ std::function<void(double)> physics_step_closure(
             JPH::Ref<JPH::CharacterVirtual> &physics_character = physics->client_id_to_physics_character[client_id];
             Camera &camera = client_id_to_camera[client_id];
             Mouse &mouse = client_id_to_mouse[client_id];
-            update_player_velocity(physics_character, camera, mouse, popped_input_snapshot, movement_acceleration,
-                                   time_since_last_update, physics->physics_system.GetGravity());
+            update_player_camera_and_velocity(physics_character, camera, mouse, popped_input_snapshot,
+                                              movement_acceleration, time_since_last_update,
+                                              physics->physics_system.GetGravity());
             printf("cihtems %d\n", popped_input_snapshot.client_input_history_insertion_time_epoch_ms);
             client_id_to_cihtems_of_last_server_processed_input_snapshot[client_id] =
                 popped_input_snapshot.client_input_history_insertion_time_epoch_ms;

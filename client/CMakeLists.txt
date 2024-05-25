@@ -1,5 +1,6 @@
-cmake_minimum_required(VERSION 3.10)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+cmake_minimum_required(VERSION 3.5)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # allows for language servers to understand the codebase
+set(CMAKE_LINKER_TYPE MOLD) # use a modern linker
 
 project(mwe_networked_physics_world_with_character_client)
 
@@ -16,8 +17,13 @@ add_executable(client
 
 	networked_input_snapshot/networked_input_snapshot.cpp
 
+	interaction/multiplayer_physics/physics.cpp
 	interaction/camera/camera.cpp
 	interaction/mouse/mouse.cpp
+	character_update/character_update.cpp
+	
+	math/conversions.cpp
+
 
 	rate_limited_loop/rate_limited_loop.cpp
 	game_loop/game_loop.cpp 
@@ -60,4 +66,8 @@ add_subdirectory(external_libraries/assimp)
 # STB_H: single file libraries
 include_directories(external_libraries/stb)
 
-target_link_libraries(client glfw glad enet_static assimp)
+# Jolt Physics: Physics Engine
+include_directories(external_libraries/JoltPhysics)
+add_subdirectory(external_libraries/JoltPhysics/Build)
+
+target_link_libraries(client glfw glad enet_static assimp Jolt)

@@ -1,14 +1,21 @@
 #include "client.hpp"
 #include "game_loop/game_loop.hpp"
+
+#include "multiplayer_window/window.hpp"
 #include "graphics/textured_model_loading/model_loading.hpp"
 #include "graphics/shader_pipeline/shader_pipeline.hpp"
-#include "networked_input_snapshot/networked_input_snapshot.hpp"
-#include "multiplayer_window/window.hpp"
 #include "graphics/graphics.hpp"
+
+#include "networked_input_snapshot/networked_input_snapshot.hpp"
 #include "expiring_data_container/expiring_data_container.hpp"
-#include "interaction/mouse/mouse.hpp"
-#include "rate_limited_loop/rate_limited_loop.hpp"
 #include "networked_character_data/networked_character_data.hpp"
+
+#include "interaction/multiplayer_physics/physics.hpp"
+#include "character_update/character_update.hpp"
+#include "interaction/mouse/mouse.hpp"
+
+#include "rate_limited_loop/rate_limited_loop.hpp"
+
 #include <chrono>
 #include <thread>
 
@@ -18,36 +25,44 @@ std::function<int()> termination_closure(GLFWwindow *window) {
     return [window]() { return glfwWindowShouldClose(window); };
 }
 
-std::function<void(double)>
-update_closure(ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history,
-               std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
-               NetworkedInputSnapshot &live_input_snapshot, Mouse &mouse, Camera &camera, uint64_t *client_id) {
+std::function<void(double)> update_closure(
+    std::mutex &reconcile_mutex, ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history,
+    std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+    NetworkedInputSnapshot &live_input_snapshot, Physics &physics, Mouse &mouse, Camera &camera, uint64_t *client_id) {
     return [&live_input_snapshot, &processed_input_snapshot_history, &mouse, &camera, client_id,
-            &client_id_to_character_data](double time_since_last_update_ms) {
+            &client_id_to_character_data, &physics, &reconcile_mutex](double time_since_last_update_ms) {
         if (*client_id == -1) {
             return; // we've not yet connected to the server, no reason to start doing anything yet. we can do better by
                     // waiting to start any thread until this condition is met. which can be check occasionally.
         }
 
-        auto [change_in_yaw_angle, change_in_pitch_angle] =
-            mouse.get_yaw_pitch_deltas(live_input_snapshot.mouse_position_x, live_input_snapshot.mouse_position_y);
+        NetworkedInputSnapshot frozen_input_snapshot = live_input_snapshot;
+        // TODO make sure that the player exists first? mutex it?
+        JPH::Ref<JPH::CharacterVirtual> client_physics_character = physics.client_id_to_physics_character[*client_id];
+        const float movement_acceleration = 15.0f;
+
         // TODO this probably needs to be locked with a mutex so that a network and local update can't occur at the
         // same time for now I don't care.
-        camera.update_look_direction(change_in_yaw_angle, change_in_pitch_angle);
-        NetworkedInputSnapshot captured_input_snapshot = live_input_snapshot;
+        reconcile_mutex.lock();
+        update_player_camera_and_velocity(client_physics_character, camera, mouse, frozen_input_snapshot,
+                                          movement_acceleration, time_since_last_update_ms,
+                                          physics.physics_system.GetGravity());
 
-        // do client side prediction by doing this we consider the snapshot to be "applied locally"
+        physics.update(time_since_last_update_ms);
+
+        // this data is what is used for rendering
         client_id_to_character_data[*client_id].camera_yaw_angle = camera.yaw_angle;
         client_id_to_character_data[*client_id].camera_pitch_angle = camera.pitch_angle;
+        client_id_to_character_data[*client_id].character_x_position = client_physics_character->GetPosition().GetX();
+        client_id_to_character_data[*client_id].character_y_position = client_physics_character->GetPosition().GetY();
+        client_id_to_character_data[*client_id].character_z_position = client_physics_character->GetPosition().GetZ();
+        reconcile_mutex.unlock();
 
         uint64_t time = std::chrono::steady_clock::now().time_since_epoch().count();
+        frozen_input_snapshot.client_input_history_insertion_time_epoch_ms = time;
+        frozen_input_snapshot.time_delta_used_for_client_side_processing_ms = time_since_last_update_ms;
 
-        captured_input_snapshot.client_input_history_insertion_time_epoch_ms = time;
-
-        // also we need to "apply the input snapshot here", for now that's just updating the camera based on mouse
-        // deltas
-
-        processed_input_snapshot_history.insert(captured_input_snapshot);
+        processed_input_snapshot_history.insert(frozen_input_snapshot);
         printf("[]~~ inserting into input snapshot history, it has size %zu\n",
                processed_input_snapshot_history.size());
         // input_snapshot_history_container.print_state();
@@ -96,11 +111,14 @@ int main() {
     Model map("../assets/maps/ground_test.obj", player_pov_shader_pipeline.shader_program_id);
     Model character_model("../assets/character/character.obj", player_pov_shader_pipeline.shader_program_id);
 
+    Physics physics;
+    physics.load_model_into_physics_world(&map);
+
     ClientNetwork client_network(&live_input_snapshot);
     client_network.attempt_to_connect_to_server();
 
     std::function<void()> temp = [&]() {
-        client_network.start_network_loop(40, camera, mouse, client_id_to_character_data,
+        client_network.start_network_loop(network_send_rate_hz, physics, camera, mouse, client_id_to_character_data,
                                           processed_input_snapshot_history);
     };
     std::thread network_thread(temp);
@@ -112,8 +130,9 @@ int main() {
     //
     RateLimitedLoop update_loop;
 
-    std::function<void(double)> update = update_closure(processed_input_snapshot_history, client_id_to_character_data,
-                                                        live_input_snapshot, mouse, camera, &client_network.id);
+    std::function<void(double)> update =
+        update_closure(client_network.reconcile_mutex, processed_input_snapshot_history, client_id_to_character_data,
+                       live_input_snapshot, physics, mouse, camera, &client_network.id);
 
     std::function<int()> termination = termination_closure(window);
 
