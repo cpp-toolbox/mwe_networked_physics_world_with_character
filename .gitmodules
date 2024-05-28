@@ -118,3 +118,9 @@
 [submodule "client/math"]
 	path = client/math
 	url = git@github.com:opengl-toolbox/math.git
+[submodule "client/external_libraries/spdlog"]
+	path = client/external_libraries/spdlog
+	url = git@github.com:gabime/spdlog.git
+[submodule "server/external_libraries/spdlog"]
+	path = server/external_libraries/spdlog
+	url = git@github.com:gabime/spdlog.git
