@@ -1,5 +1,6 @@
 #include "character_update.hpp"
 #include "../math/conversions.hpp"
+#include "spdlog/spdlog.h"
 
 void update_player_camera_and_velocity(JPH::Ref<JPH::CharacterVirtual> &character, Camera &camera, Mouse &mouse,
                                        NetworkedInputSnapshot &input_snapshot, float movement_acceleration,
@@ -28,9 +29,12 @@ void update_player_camera_and_velocity(JPH::Ref<JPH::CharacterVirtual> &characte
     glm::vec3 y_axis = glm::vec3(0, 1, 0);
     float friction = 0.983f;
     updated_velocity *= friction; // friction
+    //
     if (character->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround) {
         updated_velocity.y = 0; // empty out vertical velocity while on ground
         if (input_snapshot.jump_pressed) {
+            spdlog::info("jump occurred");
+
             updated_velocity +=
                 (float)1200 * convert_vec3_from_jolt_to_glm(character->GetUp()) * (float)time_since_last_update;
         }

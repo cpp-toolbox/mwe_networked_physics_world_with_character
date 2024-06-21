@@ -22,6 +22,20 @@ class ClientNetwork {
     std::string server_ip_address = "127.0.0.1";
     int server_port = 7777;
 
+    std::function<void(double)>
+    network_step_closure(int send_frequency_hz, Physics &physics, Camera &camera, Mouse &mouse,
+                         std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+                         ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history);
+
+    void handle_network_event(ENetEvent event, Physics &physics, Camera &camera, Mouse &mouse,
+                              std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+                              ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history);
+
+    void process_game_state_update(NetworkedCharacterData *game_update, int game_update_length, Physics &physics,
+                                   Camera &camera, Mouse &mouse,
+                                   std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+                                   ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history);
+
     int start_network_loop(int send_frequency_hz, Physics &physics, Camera &camera, Mouse &mouse,
                            std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
                            ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history);
@@ -32,7 +46,8 @@ class ClientNetwork {
     void reconcile_local_game_state_with_server_update(
         NetworkedCharacterData &networked_character_data, Physics &physics, Camera &camera, Mouse &mouse,
         std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
-        ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history);
+        ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history,
+        JPH::Vec3 &authorative_position, JPH::Vec3 &authorative_velocity);
 
     void initialize_client_network();
     void attempt_to_connect_to_server();

@@ -31,12 +31,28 @@ class ServerNetwork {
     ServerNetwork();
     unsigned int port = 7777;
     ENetHost *server;
+
+    std::function<void(double)> network_step_closure(
+        int send_frequency_hz, NetworkedInputSnapshot *input_snapshot, Physics *physics,
+        std::unordered_map<uint64_t, Camera> &client_id_to_camera,
+        std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
+        std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot,
+        ThreadSafeQueue<NetworkedInputSnapshot> &input_snapshot_queue);
+
+    void handle_network_event(
+        ENetEvent &event, NetworkedInputSnapshot *input_snapshot, Physics *physics,
+        std::unordered_map<uint64_t, Camera> &client_id_to_camera,
+        std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
+        std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot,
+        ThreadSafeQueue<NetworkedInputSnapshot> &input_snapshot_queue);
+
     int start_network_loop(
         int send_frequency_hz, NetworkedInputSnapshot *input_snapshot, Physics *physics,
         std::unordered_map<uint64_t, Camera> &client_id_to_camera,
         std::unordered_map<uint64_t, Mouse> &client_id_to_mouse,
         std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot,
         ThreadSafeQueue<NetworkedInputSnapshot> &input_snapshot_queue);
+
     void send_game_state(
         Physics *physics, std::unordered_map<uint64_t, Camera> &client_id_to_camera,
         std::unordered_map<uint64_t, uint64_t> &client_id_to_cihtems_of_last_server_processed_input_snapshot);

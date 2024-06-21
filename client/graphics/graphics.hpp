@@ -10,9 +10,9 @@
 
 #include <functional>
 
-std::function<void()> render_closure(GLuint shader_program_id, Model *map, Model &character_model,
-                                     std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
-                                     Camera *camera, GLFWwindow *window, unsigned int screen_width_px,
-                                     unsigned int screen_height_px, uint64_t *client_id);
+std::function<void(double)>
+render_closure(GLuint shader_program_id, Model *map, Model &character_model,
+               std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data, Camera *camera,
+               GLFWwindow *window, unsigned int screen_width_px, unsigned int screen_height_px, uint64_t *client_id);
 
 #endif

@@ -1,6 +1,7 @@
 #include "graphics.hpp"
 #include "glm/ext/matrix_transform.hpp"
 #include "shaders/CWL_uniform_binder_camera_pov.hpp"
+#include "spdlog/spdlog.h"
 
 void render(GLuint shader_program_id, Model *map, Model &character_model,
             std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data, Camera *camera,
@@ -11,7 +12,9 @@ void render(GLuint shader_program_id, Model *map, Model &character_model,
     }
 
     glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
+    spdlog::info("check inner render");
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    spdlog::info("inner render check complete");
 
     // instanced rendering of all the players at their different locations or something? or just multiple draw calls
     // with different transforms for each character, get the characters position, turn it into a matrix, bind that
@@ -50,12 +53,12 @@ void render(GLuint shader_program_id, Model *map, Model &character_model,
     map->draw();
 }
 
-std::function<void()> render_closure(GLuint shader_program_id, Model *map, Model &character_model,
-                                     std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
-                                     Camera *camera, GLFWwindow *window, unsigned int screen_width_px,
-                                     unsigned int screen_height_px, uint64_t *client_id) {
+std::function<void(double)>
+render_closure(GLuint shader_program_id, Model *map, Model &character_model,
+               std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data, Camera *camera,
+               GLFWwindow *window, unsigned int screen_width_px, unsigned int screen_height_px, uint64_t *client_id) {
     return [shader_program_id, map, window, camera, screen_width_px, screen_height_px, &character_model, client_id,
-            &client_id_to_character_data]() {
+            &client_id_to_character_data](double time_since_last_render_sec) {
         render(shader_program_id, map, character_model, client_id_to_character_data, camera, screen_width_px,
                screen_height_px, client_id);
         glfwSwapBuffers(window);

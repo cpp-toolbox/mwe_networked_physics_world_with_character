@@ -7,22 +7,8 @@
 #include "networked_input_snapshot/networked_input_snapshot.hpp"
 #include "networked_character_data/networked_character_data.hpp"
 #include "character_update/character_update.hpp"
-
-void print_current_time() {
-    // Get the current time point
-    auto currentTime = std::chrono::high_resolution_clock::now();
-
-    // Extract minutes, seconds, and milliseconds
-    auto currentTime_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(currentTime);
-    auto timeSinceEpoch = currentTime_ms.time_since_epoch();
-    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(timeSinceEpoch) % 1000;
-    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(timeSinceEpoch) % 60;
-    auto minutes = std::chrono::duration_cast<std::chrono::minutes>(timeSinceEpoch) % 60;
-
-    // Print the extracted time
-    printf("Current time: %lld minutes, %lld seconds, %lld milliseconds\n", minutes.count(), seconds.count(),
-           milliseconds.count());
-}
+#include "spdlog/spdlog.h"
+#include "formatting/formatting.hpp"
 
 ClientNetwork::ClientNetwork(NetworkedInputSnapshot *input_snapshot) : input_snapshot(input_snapshot) {
     initialize_client_network();
@@ -69,6 +55,7 @@ void ClientNetwork::attempt_to_connect_to_server() {
     }
     /* Wait up to 5 seconds for the connection attempt to succeed. */
     if (enet_host_service(client, &event, 5000) > 0 && event.type == ENET_EVENT_TYPE_CONNECT) {
+
         puts("Connection to some.server.net:1234 succeeded.");
         printf("peer id: %d\n", enet_peer_get_id(event.peer));
     } else {
@@ -80,10 +67,22 @@ void ClientNetwork::attempt_to_connect_to_server() {
     }
 }
 
+/**
+ * updates:            1    2    [3]    4     5
+ * receive game state:   o     o     o     o    o
+ * and reconcile
+ *
+ * when the newest game state is received, we see that it's accounted for input snapshot captured at 3
+ * therefore we we will re-apply 4 and 5 to the authorative game state, we leave the regular timeline of the
+ * client to do this, and we consider ourself back at 5 as if no time has passed.
+ *
+ *
+ */
 void ClientNetwork::reconcile_local_game_state_with_server_update(
     NetworkedCharacterData &networked_character_data, Physics &physics, Camera &camera, Mouse &mouse,
     std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
-    ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history
+    ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history, JPH::Vec3 &authorative_position,
+    JPH::Vec3 &authorative_velocity
 
 ) {
     auto ciht_of_last_server_processed_input_snapshot =
@@ -99,171 +98,478 @@ void ClientNetwork::reconcile_local_game_state_with_server_update(
         physics.client_id_to_physics_character[networked_character_data.client_id];
     const float movement_acceleration = 15.0f;
 
-    // re-apply inputs
-    printf("J~~~ about to re apply %zu snapshots out of %zu\n", snapshots_to_be_reprocessed.size(),
-           processed_input_snapshot_history.size());
-    // processed_input_snapshot_history.print_state();
-    //
     reconcile_mutex.lock();
+
+    std::string reconciliation_history;
+    reconciliation_history +=
+        fmt::format("starting reconciliation, game state before reconciliation is: \n{}", physics);
+
+    // bool first_time_rollback = true;
+    // for (int i = 0; i < snapshots_to_be_reprocessed.size(); i++) {
+    //     if (first_time_rollback) {
+    //         first_time_rollback = false;
+    //         continue;
+    //     }
+    //     reconciliation_history +=
+    //         fmt::format("rolled back to state just after applying snapshot with cihtems: {} \n",
+    //                     snapshots_to_be_reprocessed[i].client_input_history_insertion_time_epoch_ms);
+    // }
+    //
+    // int num_physics_frames_to_step_back = snapshots_to_be_reprocessed.size() - 1;
+
+    // PhysicsFrame physics_frame_before_predicted_inputs_applied =
+    //     physics.physics_frames.get_nth_from_recent(num_physics_frames_to_step_back);
+
+    // physics.physics_system.RestoreState(physics_frame_before_predicted_inputs_applied.physics_state);
+
+    client_physics_character->SetPosition(authorative_position);
+    client_physics_character->SetLinearVelocity(authorative_velocity);
+    physics.refresh_contacts(client_physics_character);
+
+    // reconciliation_history += fmt::format("after rolling back physics world state is: {}", physics);
+
+    reconciliation_history += fmt::format("Authorative pos to {} vel {}\n", authorative_position, authorative_velocity);
+
+    reconciliation_history += fmt::format("starting reconciliation about to re apply {} snapshots out of {}\n",
+                                          snapshots_to_be_reprocessed.size(), processed_input_snapshot_history.size());
+
+    // spdlog::get("network")->info("starting reconciliation about to re apply {} snapshots out of {}",
+    //                              snapshots_to_be_reprocessed.size(), processed_input_snapshot_history.size());
+    bool first_time = true; // temp fix for some reason the reprocessed snapshots is getting the matchign tiem one but
+                            // should be strict
     for (NetworkedInputSnapshot snapshot_to_be_reprocessed : snapshots_to_be_reprocessed) {
+        if (first_time) {
+            first_time = false;
+            continue;
+        }
+        reconciliation_history += fmt::format("re-applying the following snapshot: \n{}", snapshot_to_be_reprocessed);
         // TODO this probably needs to be locked with a mutex so that a network and local update
         // can't occur at the same time for now I don't care.
         update_player_camera_and_velocity(client_physics_character, camera, mouse, snapshot_to_be_reprocessed,
                                           movement_acceleration,
                                           snapshot_to_be_reprocessed.time_delta_used_for_client_side_processing_ms,
                                           physics.physics_system.GetGravity());
-        physics.update(snapshot_to_be_reprocessed.time_delta_used_for_client_side_processing_ms);
+
+        physics.update_characters_only(snapshot_to_be_reprocessed.time_delta_used_for_client_side_processing_ms);
+        // this being commented out makes it smoother because physics call rate doesn't increase, without it it would
+        // physics.update(
+        //     snapshot_to_be_reprocessed
+        //         .time_delta_used_for_client_side_processing_ms); // update in the for loop because the other
+        //         characters
+        //                                                          // that have velocity will be simulated as well
+        JPH::Vec3 reconciliation_position = client_physics_character->GetPosition();
+        JPH::Vec3 reconciliation_velocity = client_physics_character->GetLinearVelocity();
+        reconciliation_history +=
+            fmt::format("after applying that update that players new state is: \n position: {} velocity: {}\n",
+                        reconciliation_position, reconciliation_velocity);
+
+        // reconciliation_stream << "just processed cihtems: "
+        //                       << snapshot_to_be_reprocessed.client_input_history_insertion_time_epoch_ms << "|||,"
+        //                       << reconciliation_position << "|||,";
     }
-    reconcile_mutex.unlock();
 
     // client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
     // apply new changes, we have to do this because render uses this structure
-    uint64_t client_id = networked_character_data.client_id;
-    client_id_to_character_data[client_id].camera_yaw_angle = camera.yaw_angle;
-    client_id_to_character_data[client_id].camera_pitch_angle = camera.pitch_angle;
-    client_id_to_character_data[client_id].character_x_position = client_physics_character->GetPosition().GetX();
-    client_id_to_character_data[client_id].character_y_position = client_physics_character->GetPosition().GetY();
-    client_id_to_character_data[client_id].character_z_position = client_physics_character->GetPosition().GetZ();
+    // uint64_t client_id = networked_character_data.client_id;
+    // client_id_to_character_data[client_id].camera_yaw_angle = camera.yaw_angle;
+    // client_id_to_character_data[client_id].camera_pitch_angle = camera.pitch_angle;
+    // client_id_to_character_data[client_id].character_x_position = client_physics_character->GetPosition().GetX();
+    // client_id_to_character_data[client_id].character_y_position = client_physics_character->GetPosition().GetY();
+    // client_id_to_character_data[client_id].character_z_position = client_physics_character->GetPosition().GetZ();
+    //
+
+    // JPH::Vec3 position_after_reconciliation = client_physics_character->GetPosition();
+    // JPH::Vec3 velocity_after_reconciliation = client_physics_character->GetLinearVelocity();
+    reconciliation_history += fmt::format("after reconciliation the game state is: \n{}", physics);
+
+    reconcile_mutex.unlock();
+
+    // std::ostringstream x;
+    // x << position_after_reconciliation;
+    // std::string pos_str = x.str();
+    //
+    // std::ostringstream y;
+    // y << velocity_after_reconciliation;
+    // std::string vel_str = y.str();
+
+    // std::string reconciliation_positions = reconciliation_stream.str();
+    //
+
+    spdlog::get("network")->info(reconciliation_history);
+}
+
+std::function<void(double)>
+ClientNetwork::network_step_closure(int service_period_ms, Physics &physics, Camera &camera, Mouse &mouse,
+                                    std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+                                    ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history) {
+
+    return
+        [this, &service_period_ms, &physics, &client_id_to_character_data, &camera, &mouse,
+         &processed_input_snapshot_history](double service_period_ms_temp) { // temp because usually this is delta time
+            ENetEvent event;
+
+            if (this->id != -1) {
+                send_input_snapshot(processed_input_snapshot_history);
+            }
+
+            while (enet_host_service(this->client, &event, 0) > 0) {
+                handle_network_event(event, physics, camera, mouse, client_id_to_character_data,
+                                     processed_input_snapshot_history);
+            }
+
+            if (enet_host_service(this->client, &event, service_period_ms_temp) > //
+                0) { // note this sleeps the thread for the period specified
+                handle_network_event(event, physics, camera, mouse, client_id_to_character_data,
+                                     processed_input_snapshot_history);
+            }
+
+        };
+}
+
+void ClientNetwork::handle_network_event(
+    ENetEvent event, Physics &physics, Camera &camera, Mouse &mouse,
+    std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+    ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history) {
+
+    switch (event.type) {
+    case ENET_EVENT_TYPE_CONNECT: // is this even possible on the client?
+        // spdlog::get("network")
+        //     ->info("A new client connected from {}:{}", event.peer->address.host,
+        //     event.peer->address.port);
+
+        printf("A new client connected from %x:%u.\n", event.peer->address.host, event.peer->address.port);
+        /* Store any relevant client information here. */
+        event.peer->data = (void *)"Client information";
+        break;
+
+    case ENET_EVENT_TYPE_RECEIVE: {
+
+        if (event.packet->dataLength == sizeof(uint64_t)) { // client id
+            uint64_t receivedID = *reinterpret_cast<const uint64_t *>(event.packet->data);
+            this->id = receivedID;
+            physics.create_character(receivedID);
+
+            spdlog::get("network")->info("Received unique ID from server: {}", receivedID);
+            // printf("Received unique ID from server: %lu\n", receivedID);
+        } else {
+
+            bool client_id_received_already = id != -1;
+            if (client_id_received_already) { // everything after the client id is a game state update
+                NetworkedCharacterData *game_update = reinterpret_cast<NetworkedCharacterData *>(event.packet->data);
+                size_t game_update_length = event.packet->dataLength / sizeof(NetworkedCharacterData);
+                process_game_state_update(game_update, game_update_length, physics, camera, mouse,
+                                          client_id_to_character_data, processed_input_snapshot_history);
+            }
+        }
+
+        /* Clean up the packet now that we're done using it. */
+        enet_packet_destroy(event.packet);
+    } break;
+
+    case ENET_EVENT_TYPE_DISCONNECT:
+        printf("%s disconnected.\n", event.peer->data);
+        /* Reset the peer's client information. */
+        event.peer->data = NULL;
+        break;
+
+    case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
+        printf("%s disconnected due to timeout.\n", event.peer->data);
+        /* Reset the peer's client information. */
+        event.peer->data = NULL;
+        break;
+
+    case ENET_EVENT_TYPE_NONE:
+        break;
+    }
+}
+
+void ClientNetwork::process_game_state_update(
+    NetworkedCharacterData *game_update, int game_update_length, Physics &physics, Camera &camera, Mouse &mouse,
+    std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+    ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history) {
+
+    std::ostringstream first_look;
+    for (size_t i = 0; i < game_update_length; ++i) {
+        NetworkedCharacterData networked_character_data = game_update[i];
+        first_look << networked_character_data;
+    }
+
+    spdlog::get("network")->info(
+        "Just received a game update containing: \n {} individual character updates with data: \n {}",
+        game_update_length, first_look.str());
+
+    for (size_t i = 0; i < game_update_length; ++i) {
+        NetworkedCharacterData networked_character_data = game_update[i];
+
+        spdlog::get("network")->info("Iterating through the {}th character update it has data: \n {} ", i,
+                                     networked_character_data);
+
+        if (networked_character_data.client_id == this->id) {
+
+            if (networked_character_data.cihtems_of_last_server_processed_input_snapshot == -1) {
+                printf("got minus one BAD!\n");
+            }
+
+            // server is authorative blindly apply the update.
+            client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
+            JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+                physics.client_id_to_physics_character[networked_character_data.client_id];
+
+            JPH::Vec3 authoriative_position = {networked_character_data.character_x_position,
+                                               networked_character_data.character_y_position,
+                                               networked_character_data.character_z_position};
+
+            JPH::Vec3 authoriative_velocity = {networked_character_data.character_x_velocity,
+                                               networked_character_data.character_y_velocity,
+                                               networked_character_data.character_z_velocity};
+
+            JPH::Vec3 position_with_prediction = client_physics_character->GetPosition();
+            JPH::Vec3 velocity_with_prediction = client_physics_character->GetLinearVelocity();
+
+            spdlog::get("network")->info("Before reconciliation game state was \n position: {}, velocity: {}",
+                                         position_with_prediction, velocity_with_prediction);
+
+            // camera.set_look_direction(networked_character_data.camera_yaw_angle,
+            // networked_character_data.camera_pitch_angle);
+
+            // JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+            //     physics.client_id_to_physics_character[networked_character_data.client_id];
+
+            // client_physics_character.SetPosition();
+
+            // now account for the local updates that have ocurred since then
+            reconcile_local_game_state_with_server_update(networked_character_data, physics, camera, mouse,
+                                                          client_id_to_character_data, processed_input_snapshot_history,
+                                                          authoriative_position, authoriative_velocity);
+
+            JPH::Vec3 position_after_reconciliation = client_physics_character->GetPosition();
+            JPH::Vec3 velocity_after_reconciliation = client_physics_character->GetLinearVelocity();
+
+            JPH::Vec3 predicted_position_diff = position_with_prediction - position_after_reconciliation;
+            JPH::Vec3 predicted_velocity_diff = velocity_with_prediction - velocity_after_reconciliation;
+
+            spdlog::get("network")->info("prediction deltas, pos: {}, vel: {}\n poslen: {}, vellen: {}",
+                                         predicted_position_diff, predicted_velocity_diff,
+                                         predicted_position_diff.Length(), predicted_velocity_diff.Length());
+
+        } else { // this is not the client player, just slam that data in.
+            client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
+        }
+    }
 }
 
 int ClientNetwork::start_network_loop(int send_frequency_hz, Physics &physics, Camera &camera, Mouse &mouse,
                                       std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
                                       ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history) {
-    ENetEvent event;
-
-    bool first_iteration = true;
-    std::chrono::steady_clock::time_point time_of_last_input_snapshot_send;
-    float send_period_sec = 1.0 / send_frequency_hz;
-    int send_period_ms = send_period_sec * 1000;
-
-    while (true) {
-        /* Wait for an event. (WARNING: blocking, which is ok, since this is in it's own thread) */
-        if (enet_host_service(this->client, &event, send_period_ms) > 0) {
-            switch (event.type) {
-            case ENET_EVENT_TYPE_CONNECT: // is this even possible on the client?
-                printf("A new client connected from %x:%u.\n", event.peer->address.host, event.peer->address.port);
-                /* Store any relevant client information here. */
-                event.peer->data = (void *)"Client information";
-                break;
-
-            case ENET_EVENT_TYPE_RECEIVE: {
-
-                if (event.packet->dataLength == sizeof(uint64_t)) { // client id
-                    uint64_t receivedID = *reinterpret_cast<const uint64_t *>(event.packet->data);
-                    this->id = receivedID;
-                    physics.create_character(receivedID);
-                    printf("Received unique ID from server: %lu\n", receivedID);
-                }
-
-                bool client_id_received_already = id != -1;
-                if (client_id_received_already) { // everything after the client id is a game state update
-                    NetworkedCharacterData *game_update =
-                        reinterpret_cast<NetworkedCharacterData *>(event.packet->data);
-                    size_t game_update_length = event.packet->dataLength / sizeof(NetworkedCharacterData);
-
-                    for (size_t i = 0; i < game_update_length; ++i) {
-                        NetworkedCharacterData networked_character_data = game_update[i];
-
-                        // bool client_has_given_character = physics.
-                        //
-                        // if (networked_character_data.client_id
-                        //
-
-                        if (networked_character_data.client_id == this->id) {
-
-                            if (networked_character_data.cihtems_of_last_server_processed_input_snapshot == -1) {
-                                printf("got minus one BAD!\n");
-                            }
-
-                            // server is authorative blindly apply the update.
-                            client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
-                            JPH::Ref<JPH::CharacterVirtual> client_physics_character =
-                                physics.client_id_to_physics_character[networked_character_data.client_id];
-
-                            JPH::Vec3 authoriative_position = {networked_character_data.character_x_position,
-                                                               networked_character_data.character_y_position,
-                                                               networked_character_data.character_z_position};
-
-                            JPH::Vec3 authoriative_velocity = {networked_character_data.character_x_velocity,
-                                                               networked_character_data.character_y_velocity,
-                                                               networked_character_data.character_z_velocity};
-
-                            client_physics_character->SetPosition(authoriative_position);
-                            client_physics_character->SetLinearVelocity(authoriative_velocity);
-
-                            // camera.set_look_direction(networked_character_data.camera_yaw_angle,
-                            // networked_character_data.camera_pitch_angle);
-
-                            // JPH::Ref<JPH::CharacterVirtual> client_physics_character =
-                            //     physics.client_id_to_physics_character[networked_character_data.client_id];
-
-                            // client_physics_character.SetPosition();
-
-                            // now account for the local updates that have ocurred since then
-                            reconcile_local_game_state_with_server_update(networked_character_data, physics, camera,
-                                                                          mouse, client_id_to_character_data,
-                                                                          processed_input_snapshot_history);
-
-                        } else { // this is not the client player, just slam that data in.
-                            client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
-                        }
-
-                        print_current_time();
-                        printf("<~~~ received id: %lu is client: %b, pos: (%f, %f, %f) look: (%f, %f) \n",
-                               networked_character_data.client_id, networked_character_data.client_id == this->id,
-                               networked_character_data.character_x_position,
-                               networked_character_data.character_y_position,
-                               networked_character_data.character_z_position, networked_character_data.camera_yaw_angle,
-                               networked_character_data.camera_pitch_angle);
-                        // if (player_data.client_id == this->id) {
-                        //     printf("got %f %f %f\n", player_data.character_x_position,
-                        //     player_data.character_y_position,
-                        //            player_data.character_z_position);
-                        //     character_position->x = player_data.character_x_position;
-                        //     character_position->y = player_data.character_y_position;
-                        //     character_position->z = player_data.character_z_position;
-                        //     camera->set_look_direction(player_data.camera_yaw_angle,
-                        //     player_data.camera_pitch_angle);
-                        // }
-                    }
-                }
-                /* Clean up the packet now that we're done using it. */
-                enet_packet_destroy(event.packet);
-            } break;
-
-            case ENET_EVENT_TYPE_DISCONNECT:
-                printf("%s disconnected.\n", event.peer->data);
-                /* Reset the peer's client information. */
-                event.peer->data = NULL;
-                break;
-
-            case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
-                printf("%s disconnected due to timeout.\n", event.peer->data);
-                /* Reset the peer's client information. */
-                event.peer->data = NULL;
-                break;
-
-            case ENET_EVENT_TYPE_NONE:
-                break;
-            }
-        }
-
-        if (first_iteration) {
-            time_of_last_input_snapshot_send = std::chrono::steady_clock::now();
-            first_iteration = false;
-        } else if (this->id != -1) {
-            // if we 're not in the first iteration and we've received our client id from the server, then we can
-            // send out data. otherwise keep waiting
-            auto current_time = std::chrono::steady_clock::now();
-            std::chrono::duration<double> time_since_last_input_snapshot_send_sec =
-                current_time - time_of_last_input_snapshot_send;
-            if (time_since_last_input_snapshot_send_sec.count() >= send_period_sec) {
-                print_current_time();
-                send_input_snapshot(processed_input_snapshot_history);
-                time_of_last_input_snapshot_send = current_time;
-            }
-        }
-    }
+    // ENetEvent event;
+    //
+    // bool first_iteration = true;
+    // std::chrono::steady_clock::time_point time_of_last_input_snapshot_send;
+    // float send_period_sec = 1.0 / send_frequency_hz;
+    // int send_period_ms = send_period_sec * 1000;
+    //
+    // while (true) {
+    //     /* Wait for an event. (WARNING: blocking, which is ok, since this is in it's own thread) */
+    //     if (enet_host_service(this->client, &event, send_period_ms) > 0) {
+    //         switch (event.type) {
+    //         case ENET_EVENT_TYPE_CONNECT: // is this even possible on the client?
+    //             // spdlog::get("network")
+    //             //     ->info("A new client connected from {}:{}", event.peer->address.host,
+    //             event.peer->address.port);
+    //
+    //             printf("A new client connected from %x:%u.\n", event.peer->address.host, event.peer->address.port);
+    //             /* Store any relevant client information here. */
+    //             event.peer->data = (void *)"Client information";
+    //             break;
+    //
+    //         case ENET_EVENT_TYPE_RECEIVE: {
+    //
+    //             if (event.packet->dataLength == sizeof(uint64_t)) { // client id
+    //                 uint64_t receivedID = *reinterpret_cast<const uint64_t *>(event.packet->data);
+    //                 this->id = receivedID;
+    //                 physics.create_character(receivedID);
+    //
+    //                 spdlog::get("network")->info("Received unique ID from server: {}", receivedID);
+    //                 // printf("Received unique ID from server: %lu\n", receivedID);
+    //             }
+    //
+    //             bool client_id_received_already = id != -1;
+    //             if (client_id_received_already) { // everything after the client id is a game state update
+    //                 NetworkedCharacterData *game_update =
+    //                     reinterpret_cast<NetworkedCharacterData *>(event.packet->data);
+    //                 size_t game_update_length = event.packet->dataLength / sizeof(NetworkedCharacterData);
+    //
+    //                 std::ostringstream first_look;
+    //                 for (size_t i = 0; i < game_update_length; ++i) {
+    //                     NetworkedCharacterData networked_character_data = game_update[i];
+    //                     first_look << networked_character_data;
+    //                 }
+    //
+    //                 spdlog::get("network")->info(
+    //                     "Just received a game update containing {} individual character updates with data {}",
+    //                     game_update_length, first_look.str());
+    //
+    //                 for (size_t i = 0; i < game_update_length; ++i) {
+    //                     NetworkedCharacterData networked_character_data = game_update[i];
+    //
+    //                     std::ostringstream oss;
+    //                     oss << networked_character_data;
+    //                     std::string struct_string = oss.str();
+    //                     spdlog::get("network")->info("Iterating through the {}th character update it has data: {} ",
+    //                     i,
+    //                                                  struct_string);
+    //
+    //                     // bool client_has_given_character = physics.
+    //                     //
+    //                     // if (networked_character_data.client_id
+    //                     //
+    //
+    //                     if (networked_character_data.client_id == this->id) {
+    //
+    //                         if (networked_character_data.cihtems_of_last_server_processed_input_snapshot == -1) {
+    //                             printf("got minus one BAD!\n");
+    //                         }
+    //
+    //                         // server is authorative blindly apply the update.
+    //                         client_id_to_character_data[networked_character_data.client_id] =
+    //                         networked_character_data; JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+    //                             physics.client_id_to_physics_character[networked_character_data.client_id];
+    //
+    //                         JPH::Vec3 authoriative_position = {networked_character_data.character_x_position,
+    //                                                            networked_character_data.character_y_position,
+    //                                                            networked_character_data.character_z_position};
+    //
+    //                         JPH::Vec3 authoriative_velocity = {networked_character_data.character_x_velocity,
+    //                                                            networked_character_data.character_y_velocity,
+    //                                                            networked_character_data.character_z_velocity};
+    //
+    //                         JPH::Vec3 position_with_prediction = client_physics_character->GetPosition();
+    //                         JPH::Vec3 velocity_with_prediction = client_physics_character->GetLinearVelocity();
+    //
+    //                         std::ostringstream x;
+    //                         x << position_with_prediction;
+    //                         std::string pos_str = x.str();
+    //
+    //                         std::ostringstream y;
+    //                         y << velocity_with_prediction;
+    //                         std::string vel_str = y.str();
+    //
+    //                         spdlog::get("network")->info("Before reconciliation pos was {} vel was {}", pos_str,
+    //                                                      vel_str);
+    //
+    //                         client_physics_character->SetPosition(authoriative_position);
+    //                         client_physics_character->SetLinearVelocity(authoriative_velocity);
+    //
+    //                         // physics.update_characters_only(0.00001); // to move the player
+    //
+    //                         std::ostringstream x1;
+    //                         x1 << authoriative_position;
+    //                         pos_str = x1.str();
+    //
+    //                         std::ostringstream y1;
+    //                         y1 << authoriative_velocity;
+    //                         vel_str = y1.str();
+    //
+    //                         spdlog::get("network")->info("Authorative pos to {} vel {}", pos_str, vel_str);
+    //
+    //                         // camera.set_look_direction(networked_character_data.camera_yaw_angle,
+    //                         // networked_character_data.camera_pitch_angle);
+    //
+    //                         // JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+    //                         //     physics.client_id_to_physics_character[networked_character_data.client_id];
+    //
+    //                         // client_physics_character.SetPosition();
+    //
+    //                         // now account for the local updates that have ocurred since then
+    //                         reconcile_local_game_state_with_server_update(networked_character_data, physics, camera,
+    //                                                                       mouse, client_id_to_character_data,
+    //                                                                       processed_input_snapshot_history);
+    //
+    //                         JPH::Vec3 position_after_reconciliation = client_physics_character->GetPosition();
+    //                         JPH::Vec3 velocity_after_reconciliation = client_physics_character->GetLinearVelocity();
+    //
+    //                         physics.update_characters_only(0.001);
+    //
+    //                         JPH::Vec3 predicted_position_diff =
+    //                             position_with_prediction - position_after_reconciliation;
+    //                         JPH::Vec3 predicted_velocity_diff =
+    //                             velocity_with_prediction - velocity_after_reconciliation;
+    //
+    //                         std::ostringstream x2;
+    //                         x2 << predicted_position_diff;
+    //                         pos_str = x2.str();
+    //
+    //                         std::ostringstream y2;
+    //                         y2 << predicted_velocity_diff;
+    //                         vel_str = y2.str();
+    //
+    //                         spdlog::get("network")->info("prediction deltas, pos: {}, vel: {}, poslen: {}, vellen:
+    //                         {}",
+    //                                                      pos_str, vel_str, predicted_position_diff.Length(),
+    //                                                      predicted_velocity_diff.Length());
+    //
+    //                     } else { // this is not the client player, just slam that data in.
+    //                         client_id_to_character_data[networked_character_data.client_id] =
+    //                         networked_character_data;
+    //                     }
+    //
+    //                     // print_current_time();
+    //                     // printf("<~~~ received id: %lu is client: %b, pos: (%f, %f, %f) look: (%f, %f) \n",
+    //                     //        networked_character_data.client_id, networked_character_data.client_id == this->id,
+    //                     //        networked_character_data.character_x_position,
+    //                     //        networked_character_data.character_y_position,
+    //                     //        networked_character_data.character_z_position,
+    //                     //        networked_character_data.camera_yaw_angle,
+    //                     //        networked_character_data.camera_pitch_angle);
+    //                     // if (player_data.client_id == this->id) {
+    //                     //     printf("got %f %f %f\n", player_data.character_x_position,
+    //                     //     player_data.character_y_position,
+    //                     //            player_data.character_z_position);
+    //                     //     character_position->x = player_data.character_x_position;
+    //                     //     character_position->y = player_data.character_y_position;
+    //                     //     character_position->z = player_data.character_z_position;
+    //                     //     camera->set_look_direction(player_data.camera_yaw_angle,
+    //                     //     player_data.camera_pitch_angle);
+    //                     // }
+    //                 }
+    //             }
+    //             /* Clean up the packet now that we're done using it. */
+    //             enet_packet_destroy(event.packet);
+    //         } break;
+    //
+    //         case ENET_EVENT_TYPE_DISCONNECT:
+    //             printf("%s disconnected.\n", event.peer->data);
+    //             /* Reset the peer's client information. */
+    //             event.peer->data = NULL;
+    //             break;
+    //
+    //         case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
+    //             printf("%s disconnected due to timeout.\n", event.peer->data);
+    //             /* Reset the peer's client information. */
+    //             event.peer->data = NULL;
+    //             break;
+    //
+    //         case ENET_EVENT_TYPE_NONE:
+    //             break;
+    //         }
+    //     }
+    //
+    //     if (first_iteration) {
+    //         time_of_last_input_snapshot_send = std::chrono::steady_clock::now();
+    //         first_iteration = false;
+    //     } else if (this->id != -1) {
+    //         // if we 're not in the first iteration and we've received our client id from the server, then we can
+    //         // send out data. otherwise keep waiting
+    //         auto current_time = std::chrono::steady_clock::now();
+    //         std::chrono::duration<double> time_since_last_input_snapshot_send_sec =
+    //             current_time - time_of_last_input_snapshot_send;
+    //         if (time_since_last_input_snapshot_send_sec.count() >= send_period_sec) {
+    //             // print_current_time();
+    //             send_input_snapshot(processed_input_snapshot_history);
+    //             time_of_last_input_snapshot_send = current_time;
+    //         }
+    //     }
+    // }
 
     enet_host_destroy(this->client);
     enet_deinitialize();
@@ -287,8 +593,8 @@ void ClientNetwork::send_input_snapshot(
                                             0); // 0 indicates unreliable packet
     //
 
-    printf("~~~> sending input snapshot, it has timestamp %lu\n",
-           most_recently_added_processed_snapshot.client_input_history_insertion_time_epoch_ms);
+    spdlog::get("network")->info("~~~> sending input snapshot, it has timestamp {}",
+                                 most_recently_added_processed_snapshot.client_input_history_insertion_time_epoch_ms);
     // printf("msx %f msy %f\n", this->input_snapshot->mouse_position_x,
     // this->input_snapshot->mouse_position_y);
     enet_peer_send(server_connection, 0, packet);

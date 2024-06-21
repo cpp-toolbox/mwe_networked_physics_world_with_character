@@ -10,6 +10,11 @@ add_executable(server
 	interaction/multiplayer_physics/physics.cpp
 	interaction/camera/camera.cpp
 	interaction/mouse/mouse.cpp
+
+	networked_character_data/networked_character_data.cpp
+	networked_input_snapshot/networked_input_snapshot.cpp
+
+	formatting/formatting.cpp
 	
 	rate_limited_loop/rate_limited_loop.cpp
 	model_loading/model_loading.cpp
@@ -47,6 +52,9 @@ set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 include_directories(external_libraries/FTXUI/include)
 add_subdirectory(external_libraries/FTXUI)
 
+# spdlog: fast logging
+add_subdirectory(external_libraries/spdlog)
+
 target_link_libraries(server 
 	PRIVATE ftxui::screen
 	PRIVATE ftxui::dom
@@ -54,4 +62,5 @@ target_link_libraries(server
 	enet_static 
 	Jolt 
 	assimp
+	spdlog
 )

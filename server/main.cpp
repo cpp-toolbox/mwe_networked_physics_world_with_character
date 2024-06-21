@@ -8,13 +8,18 @@
 #include "math/conversions.hpp"
 #include "interaction/mouse/mouse.hpp"
 
-#include "thread_safe_queue.hpp"
+#include "formatting/formatting.hpp"
 
 #include "ftxui/component/component.hpp" // for Checkbox, Renderer, Horizontal, Vertical, Input, Menu, Radiobox, ResizableSplitLeft, Tab
 #include "ftxui/component/screen_interactive.hpp" // for Component, ScreenInteractive
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>
+
+#include "spdlog/sinks/stdout_color_sinks.h"
+#include "spdlog/spdlog.h"
+#include "spdlog/sinks/basic_file_sink.h"
+#include "thread_safe_queue.hpp"
 
 void update_player_camera_and_velocity(JPH::Ref<JPH::CharacterVirtual> &character, Camera &camera, Mouse &mouse,
                                        NetworkedInputSnapshot &input_snapshot, float movement_acceleration,
@@ -65,6 +70,7 @@ std::function<void(double)> physics_step_closure(
     float movement_acceleration) {
     return [input_snapshot, physics, &client_id_to_camera, &client_id_to_mouse, movement_acceleration,
             &client_id_to_cihtems_of_last_server_processed_input_snapshot](double time_since_last_update) {
+        std::ostringstream input_snapshot_queue_application_stream;
         while (!physics->input_snapshot_queue.empty()) {
             // InputSnapshot popped_input_snapshot = physics->input_snapshot_queue.front();
             NetworkedInputSnapshot popped_input_snapshot = physics->input_snapshot_queue.pop();
@@ -73,14 +79,23 @@ std::function<void(double)> physics_step_closure(
             JPH::Ref<JPH::CharacterVirtual> &physics_character = physics->client_id_to_physics_character[client_id];
             Camera &camera = client_id_to_camera[client_id];
             Mouse &mouse = client_id_to_mouse[client_id];
+
             update_player_camera_and_velocity(physics_character, camera, mouse, popped_input_snapshot,
                                               movement_acceleration, time_since_last_update,
                                               physics->physics_system.GetGravity());
-            printf("cihtems %d\n", popped_input_snapshot.client_input_history_insertion_time_epoch_ms);
+
             client_id_to_cihtems_of_last_server_processed_input_snapshot[client_id] =
                 popped_input_snapshot.client_input_history_insertion_time_epoch_ms;
+
+            input_snapshot_queue_application_stream << popped_input_snapshot;
+            std::string struct_string = input_snapshot_queue_application_stream.str();
+
+            spdlog::info("just updated player velocity using IS: \n{}", popped_input_snapshot);
         }
+
         physics->update(time_since_last_update);
+
+        spdlog::info("physics tick with delta: {} game state: \n{}", time_since_last_update, *physics);
     };
 }
 
@@ -155,7 +170,39 @@ int start_terminal_interface(double *physics_rate_hz, double *game_state_send_ra
     return EXIT_SUCCESS;
 }
 
-int main() {
+void create_logger_system() {
+
+    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs.txt", true);
+    // auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    // console_sink->set_level(spdlog::level::info);
+    file_sink->set_level(spdlog::level::info);
+
+    // Create logger for main messages with combined sinks
+    // spdlog::sinks_init_list main_sink_list = {console_sink, file_sink};
+    spdlog::sinks_init_list main_sink_list = {file_sink};
+    auto main_logger = std::make_shared<spdlog::logger>("main", main_sink_list.begin(), main_sink_list.end());
+    main_logger->set_level(spdlog::level::debug);
+
+    // spdlog::sinks_init_list network_sink_list = {console_sink, file_sink};
+    spdlog::sinks_init_list network_sink_list = {file_sink};
+    auto network_logger =
+        std::make_shared<spdlog::logger>("network", network_sink_list.begin(), network_sink_list.end());
+    network_logger->set_level(spdlog::level::debug);
+
+    spdlog::sinks_init_list update_sink_list = {file_sink};
+    auto update_logger = std::make_shared<spdlog::logger>("update", update_sink_list.begin(), update_sink_list.end());
+    update_logger->set_level(spdlog::level::debug);
+
+    // Register loggers with spdlog
+    spdlog::set_default_logger(main_logger);
+    spdlog::register_logger(network_logger);
+    spdlog::register_logger(update_logger);
+
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%F] [%l] %v");
+}
+
+int start_multithreaded_setup() {
+
     ServerNetwork server_network;
     NetworkedInputSnapshot input_snapshot;
     std::unordered_map<uint64_t, Camera> client_id_to_camera;
@@ -163,7 +210,7 @@ int main() {
     std::unordered_map<uint64_t, uint64_t> client_id_to_cihtems_of_last_server_processed_input_snapshot;
     const float movement_acceleration = 15.0f;
     const int physics_rate_hz = 60;
-    const int network_send_rate_hz = 40;
+    const int network_send_rate_hz = 60;
 
     Physics physics;
     Model map("../assets/maps/ground_test.obj");
@@ -180,11 +227,20 @@ int main() {
     std::thread physics_thread(start_loop);
     physics_thread.detach();
 
-    auto start_network_loop = [&]() {
-        server_network.start_network_loop(
-            network_send_rate_hz, &input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
-            client_id_to_cihtems_of_last_server_processed_input_snapshot, physics.input_snapshot_queue);
+    RateLimitedLoop network_loop;
+    std::function<void(double)> network_step = server_network.network_step_closure(
+        network_send_rate_hz, &input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
+        client_id_to_cihtems_of_last_server_processed_input_snapshot, physics.input_snapshot_queue);
+
+    std::function start_network_loop = [&]() {
+        network_loop.start(network_send_rate_hz, network_step, termination_condition);
     };
+
+    // auto start_network_loop = [&]() {
+    //     server_network.start_network_loop(
+    //         network_send_rate_hz, &input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
+    //         client_id_to_cihtems_of_last_server_processed_input_snapshot, physics.input_snapshot_queue);
+    // };
 
     bool using_tui = false;
     double temp_network_freq = -1.0;
@@ -195,4 +251,76 @@ int main() {
     } else {
         server_receive_loop_thread.join();
     }
+    return 0;
+}
+
+int start_linear_setup() {
+
+    ServerNetwork server_network;
+    NetworkedInputSnapshot input_snapshot;
+    std::unordered_map<uint64_t, Camera> client_id_to_camera;
+    std::unordered_map<uint64_t, Mouse> client_id_to_mouse;
+    std::unordered_map<uint64_t, uint64_t> client_id_to_cihtems_of_last_server_processed_input_snapshot;
+    const float movement_acceleration = 15.0f;
+    const int physics_rate_hz = 60;
+    const int network_send_rate_hz = 60;
+
+    Physics physics;
+    Model map("../assets/maps/ground_test.obj");
+    physics.load_model_into_physics_world(&map);
+
+    std::function<void(double)> physics_step =
+        physics_step_closure(&input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
+                             client_id_to_cihtems_of_last_server_processed_input_snapshot, movement_acceleration);
+
+    std::function<bool()> termination_condition = []() { return false; };
+
+    std::function<void(double)> network_step = server_network.network_step_closure(
+        network_send_rate_hz, &input_snapshot, &physics, client_id_to_camera, client_id_to_mouse,
+        client_id_to_cihtems_of_last_server_processed_input_snapshot, physics.input_snapshot_queue);
+
+    const uint32_t target_frame_duration_ms = 1000 / 60; // Target frame duration in milliseconds (16.67 ms)
+    auto previous_frame_time = std::chrono::high_resolution_clock::now();
+
+    while (true) {
+
+        auto current_frame_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> delta_time = current_frame_time - previous_frame_time;
+        double delta_time_seconds = delta_time.count(); // Delta time in seconds
+        previous_frame_time = current_frame_time;
+
+        // Update physics with delta time in seconds
+        physics_step(delta_time_seconds);
+
+        // Calculate elapsed time after physics
+        auto after_update_and_render_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsed_update_time =
+            after_update_and_render_time - current_frame_time;
+
+        // Calculate remaining time for network events processing
+        uint32_t remaining_time_for_network = target_frame_duration_ms;
+        if (elapsed_update_time.count() < target_frame_duration_ms) {
+            remaining_time_for_network -= static_cast<uint32_t>(elapsed_update_time.count());
+        }
+
+        // Send network events with remaining time in milliseconds
+        network_step(remaining_time_for_network);
+
+        // Calculate total elapsed time for the frame
+        auto frame_end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsed_frame_time = frame_end_time - current_frame_time;
+
+        // Calculate sleep time to maintain 60 Hz frequency
+        auto sleep_duration = std::chrono::milliseconds(target_frame_duration_ms) - elapsed_frame_time;
+        if (sleep_duration > std::chrono::milliseconds(0)) {
+            std::this_thread::sleep_for(sleep_duration);
+        }
+    }
+
+    return 0;
+}
+
+int main() {
+    create_logger_system();
+    start_linear_setup();
 }

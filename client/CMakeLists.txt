@@ -16,14 +16,16 @@ add_executable(client
 	graphics/shaders/CWL_uniform_binder_camera_pov.cpp
 
 	networked_input_snapshot/networked_input_snapshot.cpp
+	networked_character_data/networked_character_data.cpp
 
 	interaction/multiplayer_physics/physics.cpp
 	interaction/camera/camera.cpp
 	interaction/mouse/mouse.cpp
 	character_update/character_update.cpp
+
+	formatting/formatting.cpp
 	
 	math/conversions.cpp
-
 
 	rate_limited_loop/rate_limited_loop.cpp
 	game_loop/game_loop.cpp 
@@ -70,4 +72,7 @@ include_directories(external_libraries/stb)
 include_directories(external_libraries/JoltPhysics)
 add_subdirectory(external_libraries/JoltPhysics/Build)
 
-target_link_libraries(client glfw glad enet_static assimp Jolt)
+# spdlog: fast logging
+add_subdirectory(external_libraries/spdlog)
+
+target_link_libraries(client glfw glad enet_static assimp Jolt spdlog)

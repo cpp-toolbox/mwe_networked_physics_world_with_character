@@ -124,3 +124,9 @@
 [submodule "server/external_libraries/spdlog"]
 	path = server/external_libraries/spdlog
 	url = git@github.com:gabime/spdlog.git
+[submodule "client/formatting"]
+	path = client/formatting
+	url = git@github.com:opengl-toolbox/formatting.git
+[submodule "server/formatting"]
+	path = server/formatting
+	url = git@github.com:opengl-toolbox/formatting.git
