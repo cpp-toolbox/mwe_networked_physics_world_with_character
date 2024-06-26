@@ -16,10 +16,12 @@ class ClientNetwork {
     ~ClientNetwork();
 
     uint64_t id = -1;
+    bool online_connection = true;
     NetworkedInputSnapshot *input_snapshot;
     ENetHost *client;
     ENetPeer *server_connection;
-    std::string server_ip_address = "127.0.0.1";
+    std::string local_ip_address = "127.0.0.1";
+    std::string server_ip_address = "104.131.10.102";
     int server_port = 7777;
 
     std::function<void(double)>

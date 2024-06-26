@@ -5,9 +5,13 @@ import matplotlib.dates as mdates
 from matplotlib.collections import PathCollection
 from matplotlib.lines import Line2D
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum, auto
 from typing import List
+
+use_remote_server_logs = True
+remote_server_time_offset_hours = 4;
+remote_server_time_offset_seconds = 1.666
 
 class Client(Enum):
     received_unique_id = auto()
@@ -99,12 +103,17 @@ def parse_log_data_to_dict_of_log_type_to_tuples_of_time_to_message(client_log_d
 
     for client_and_server_log_datum in client_and_server_log_data:
         for_client, log_data = client_and_server_log_datum
+        for_server = not for_client
 
         for log in log_data:
             timestamp_str = log.split(']')[0][1:-3]  # Remove nanoseconds
             if timestamp_str == '':
                 print('empty one', log)
             timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+
+            if for_server and use_remote_server_logs:
+                timestamp = timestamp - timedelta(hours=remote_server_time_offset_hours, seconds=remote_server_time_offset_seconds)
+
             message = log.strip()  # Remove leading/trailing whitespaces
 
             # message = replace_commas_with_newlines(message)
@@ -494,7 +503,11 @@ def process_log_file(input_file):
 hover_tracker, scroll_tracker = None, None
 
 client_log_file_path = '../client/build/logs.txt'
-server_log_file_path = '../server/build/logs.txt'
+
+if use_remote_server_logs:
+    server_log_file_path = '../server/build/remote_logs.txt'
+else:
+    server_log_file_path = '../server/build/logs.txt'
 
 entire_client_log_data = process_log_file(client_log_file_path)
 entire_server_log_data = process_log_file(server_log_file_path)

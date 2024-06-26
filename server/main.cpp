@@ -301,6 +301,8 @@ int start_linear_setup() {
         uint32_t remaining_time_for_network = target_frame_duration_ms;
         if (elapsed_update_time.count() < target_frame_duration_ms) {
             remaining_time_for_network -= static_cast<uint32_t>(elapsed_update_time.count());
+        } else {
+            // our physics step took incredibly long, this is bad...
         }
 
         // Send network events with remaining time in milliseconds

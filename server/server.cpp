@@ -111,19 +111,35 @@ std::function<void(double)> ServerNetwork::network_step_closure(
     return [this, input_snapshot, &send_frequency_hz, physics, &client_id_to_camera, &client_id_to_mouse,
             &client_id_to_cihtems_of_last_server_processed_input_snapshot,
             &input_snapshot_queue](double time_since_last_network_step) {
+        double time_remaining_for_current_frame_ms = time_since_last_network_step;
+
         ENetEvent event;
 
         send_game_state(physics, client_id_to_camera, client_id_to_cihtems_of_last_server_processed_input_snapshot);
 
-        while (enet_host_service(this->server, &event, 0) > 0) {
+        while (enet_host_service(this->server, &event, 0) > 0) { // handle any events that have been waiting
             handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
                                  client_id_to_cihtems_of_last_server_processed_input_snapshot, input_snapshot_queue);
         }
 
-        if (enet_host_service(this->server, &event, time_since_last_network_step) >
-            0) { // this actually is the amount of time to wait defined by the linear order thing
-            handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
-                                 client_id_to_cihtems_of_last_server_processed_input_snapshot, input_snapshot_queue);
+        auto initial_time = std::chrono::high_resolution_clock::now();
+        // Now actually wait for new events
+        int remaining_ms_cutoff = 10;
+        while (time_remaining_for_current_frame_ms >= remaining_ms_cutoff) {
+            if (enet_host_service(this->server, &event, time_remaining_for_current_frame_ms) >
+                0) { // this actually is the amount of time to wait defined by the linear order thing
+                handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
+                                     client_id_to_cihtems_of_last_server_processed_input_snapshot,
+                                     input_snapshot_queue);
+
+                auto time_after_handling_network_event = std::chrono::high_resolution_clock::now();
+
+                std::chrono::duration<double, std::milli> elapsed_handle_network_event_time =
+                    time_after_handling_network_event - initial_time;
+                initial_time = time_after_handling_network_event;
+
+                time_remaining_for_current_frame_ms -= static_cast<uint32_t>(elapsed_handle_network_event_time.count());
+            }
         }
     };
 }

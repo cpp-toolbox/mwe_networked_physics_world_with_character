@@ -45,7 +45,11 @@ void ClientNetwork::attempt_to_connect_to_server() {
     /* Connect to some.server.net:1234. */
     // enet_address_set_host(&address, "142.67.250.4");
     // address.port = 9999;
-    enet_address_set_host(&address, "127.0.0.1");
+    if (this->online_connection) {
+        enet_address_set_host(&address, "104.131.10.102");
+    } else {
+        enet_address_set_host(&address, "127.0.0.1");
+    }
     address.port = 7777;
     /* Initiate the connection, allocating the two channels 0 and 1. */
     server_connection = enet_host_connect(client, &address, 2, 0);
