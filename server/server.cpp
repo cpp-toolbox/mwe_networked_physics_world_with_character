@@ -115,8 +115,6 @@ std::function<void(double)> ServerNetwork::network_step_closure(
 
         ENetEvent event;
 
-        send_game_state(physics, client_id_to_camera, client_id_to_cihtems_of_last_server_processed_input_snapshot);
-
         while (enet_host_service(this->server, &event, 0) > 0) { // handle any events that have been waiting
             handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
                                  client_id_to_cihtems_of_last_server_processed_input_snapshot, input_snapshot_queue);
@@ -141,6 +139,8 @@ std::function<void(double)> ServerNetwork::network_step_closure(
                 time_remaining_for_current_frame_ms -= static_cast<uint32_t>(elapsed_handle_network_event_time.count());
             }
         }
+
+        send_game_state(physics, client_id_to_camera, client_id_to_cihtems_of_last_server_processed_input_snapshot);
     };
 }
 
