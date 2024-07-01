@@ -123,7 +123,7 @@ std::function<void(double)> ServerNetwork::network_step_closure(
         auto initial_time = std::chrono::high_resolution_clock::now();
         // Now actually wait for new events
         int remaining_ms_cutoff = 10;
-        int poll_period_ms = 100;
+        int poll_period_ms = 2;
         while (time_remaining_for_current_frame_ms >= remaining_ms_cutoff) {
             if (enet_host_service(this->server, &event, poll_period_ms) >
                 0) { // this actually is the amount of time to wait defined by the linear order thing
