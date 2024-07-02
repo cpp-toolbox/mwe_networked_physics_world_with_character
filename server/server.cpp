@@ -113,6 +113,10 @@ std::function<void(double)> ServerNetwork::network_step_closure(
             &input_snapshot_queue](double time_since_last_network_step) {
         double time_remaining_for_current_frame_ms = time_since_last_network_step;
 
+        // send game state first that way it is sent at a constant rate, rather than at the end which makes the send
+        // time variable
+        send_game_state(physics, client_id_to_camera, client_id_to_cihtems_of_last_server_processed_input_snapshot);
+
         ENetEvent event;
 
         while (enet_host_service(this->server, &event, 0) > 0) { // handle any events that have been waiting
@@ -140,8 +144,6 @@ std::function<void(double)> ServerNetwork::network_step_closure(
                 time_remaining_for_current_frame_ms -= static_cast<uint32_t>(elapsed_handle_network_event_time.count());
             }
         }
-
-        send_game_state(physics, client_id_to_camera, client_id_to_cihtems_of_last_server_processed_input_snapshot);
     };
 }
 
