@@ -221,25 +221,10 @@ ClientNetwork::network_step_closure(int service_period_ms, Physics &physics, Cam
                                      processed_input_snapshot_history);
             }
 
-            auto initial_time = std::chrono::high_resolution_clock::now();
-            // Now actually wait for new events
-            int remaining_ms_cutoff = 10;
-            int poll_period_ms = 2;
-            while (service_period_ms_temp >= remaining_ms_cutoff) {
-                if (enet_host_service(this->client, &event, poll_period_ms) > //
-                    0) { // this actually is the amount of time to wait defined by the linear order thing
-                    //
-                    handle_network_event(event, physics, camera, mouse, client_id_to_character_data,
-                                         processed_input_snapshot_history);
-
-                    auto time_after_handling_network_event = std::chrono::high_resolution_clock::now();
-
-                    std::chrono::duration<double, std::milli> elapsed_handle_network_event_time =
-                        time_after_handling_network_event - initial_time;
-                    initial_time = time_after_handling_network_event;
-
-                    service_period_ms_temp -= static_cast<uint32_t>(elapsed_handle_network_event_time.count());
-                }
+            if (enet_host_service(this->client, &event, service_period_ms_temp) > //
+                0) { // note this sleeps the thread for the period specified
+                handle_network_event(event, physics, camera, mouse, client_id_to_character_data,
+                                     processed_input_snapshot_history);
             }
 
         };
