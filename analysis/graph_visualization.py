@@ -11,7 +11,7 @@ from typing import List
 
 use_remote_server_logs = True
 remote_server_time_offset_hours = 4;
-remote_server_time_offset_seconds = 1.666
+remote_server_time_offset_seconds = 7.080; 
 
 class Client(Enum):
     received_unique_id = auto()
@@ -21,12 +21,13 @@ class Client(Enum):
     received_game_state = auto()
     sending_input_snapshot = auto()
     recorded_input_into_history = auto()
-    physics_tick = auto()
+    physics_tick = auto() 
     just_reconciled = auto()
 class Server(Enum):
     received_input_snapshot = auto()
     sending_game_state = auto()
     physics_tick = auto()
+    general_tick = auto() # general information about the entire server tick
     updated_player_state_with_input_snapshot = auto()
 
 class LogType:
@@ -50,6 +51,7 @@ log_type_to_y_position = {
     LogType.server.received_input_snapshot: -2, 
     LogType.server.updated_player_state_with_input_snapshot: -3, 
     LogType.server.physics_tick: -4, 
+    LogType.server.general_tick: -4.5, 
 }
 
 log_type_to_plt = {}
@@ -64,6 +66,8 @@ def server_message_to_log_type(message: str):
         return LogType.server.sending_game_state
     elif "physics tick with delta" in message:
         return LogType.server.physics_tick
+    elif "started server tick" in message:
+        return LogType.server.general_tick
     else:
         return LogType.irrelevant
 
@@ -213,10 +217,13 @@ class GraphInteraction:
             self.left_mouse_pressed = status
             self.markup_diagram(event)
 
-        if event.button == right_mouse_code:
+        if event.button == right_mouse_code: # clear annotations
             self.right_mouse_pressed = status
-            self.clear_pinned_annotations()
-            self.annotation_lines.clear_all_lines()
+            if self.left_mouse_pressed:
+                self.annotation_lines.clear_all_lines()
+            else:
+                self.clear_pinned_annotations()
+
 
     def hover(self, event):
         self.markup_diagram(event)
@@ -240,7 +247,11 @@ class GraphInteraction:
                         self.draw_input_snapshot_client_to_server_processed_line(log_data, log_plt, ind)
 
                     if log_type == LogType.client.received_game_state and self.left_mouse_pressed and self.left_shift_pressed:
-                        self.draw_input_snapshot_server_send_to_client_receive_game_state_line(log_data, log_plt, ind)
+                        # self.draw_input_snapshot_server_send_to_client_receive_game_state_line(log_data, log_plt, ind)
+                        self.draw_line_from_mouse_that_pressed_on_client_or_server_receive_to_the_corresponding_send(False, log_data, log_plt, ind)
+
+                    if log_type == LogType.server.received_input_snapshot and self.left_mouse_pressed and self.left_shift_pressed:
+                        self.draw_line_from_mouse_that_pressed_on_client_or_server_receive_to_the_corresponding_send(True, log_data, log_plt, ind)
 
             vis = self.annotation.get_visible()
             if vis and mouse_event_not_in_any_sub_plot:
@@ -248,29 +259,53 @@ class GraphInteraction:
             self.fig.canvas.draw_idle()
 
 
-    def draw_input_snapshot_server_send_to_client_receive_game_state_line(self, client_receive_game_state_logs, log_plt, ind):
+    def draw_line_from_mouse_that_pressed_on_client_or_server_receive_to_the_corresponding_send(self, doing_server_receive: bool, client_or_server_receive_logs, log_plt, ind):
+
         point_index_of_closest_point_in_line_to_mouse = ind['ind'][0]
         closest_idx = point_index_of_closest_point_in_line_to_mouse
-        log_message = client_receive_game_state_logs[closest_idx][1]
+        log_message = client_or_server_receive_logs[closest_idx][1]
 
         x, y = x_y_data_from_plot_or_scatter(log_plt)
         client_receive_point = (x[closest_idx], y[closest_idx])
-
         client_cihtems = extract_cihtems_from_log_message(log_message)
 
+        logs_to_search_through = None
+        if doing_server_receive:
+            logs_to_search_through = log_type_to_logs[LogType.client.sending_input_snapshot]
+        else: # doing client receive
+            logs_to_search_through = log_type_to_logs[LogType.server.sending_game_state]
+
+
+        self.draw_line_between_matching_cihtems(doing_server_receive, client_receive_point, client_cihtems, logs_to_search_through)
+
+
+    # def draw_input_snapshot_server_send_to_client_receive_game_state_line(self, client_receive_game_state_logs, log_plt, ind):
+    #     point_index_of_closest_point_in_line_to_mouse = ind['ind'][0]
+    #     closest_idx = point_index_of_closest_point_in_line_to_mouse
+    #     log_message = client_receive_game_state_logs[closest_idx][1]
+    #
+    #     x, y = x_y_data_from_plot_or_scatter(log_plt)
+    #     client_receive_point = (x[closest_idx], y[closest_idx])
+    #     client_cihtems = extract_cihtems_from_log_message(log_message)
+    #     logs_to_search_through = log_type_to_logs[LogType.server.sending_game_state]
+    #
+    #     self.draw_line_between_matching_cihtems(client_receive_point, client_cihtems, logs_to_search_through)
+
+
+    def draw_line_between_matching_cihtems(self, doing_server_receive: bool,  origin_cihtems_point, cihtems_to_find, logs_to_search_through):
         cihtems_found = False
         send_point = (0, 0)
-        for point, log_message in log_type_to_logs[LogType.server.sending_game_state]:
+        for point, log_message in logs_to_search_through:
             server_cihtems = extract_cihtems_from_log_message(log_message)            
-            if client_cihtems == server_cihtems:
+            if cihtems_to_find == server_cihtems:
                 cihtems_found = True
                 # need to convert here because raw data is a datetime, don't need to do elsewhere
                 # because once on graph it's already converted
                 send_point = (mdates.date2num(point[0]), point[1])
 
         if cihtems_found:
-            print(client_receive_point, send_point)
-            self.annotation_lines.add_line(client_receive_point[0], client_receive_point[1], send_point[0], send_point[1], color='black')
+            print(origin_cihtems_point, send_point)
+            self.annotation_lines.add_line(origin_cihtems_point[0], origin_cihtems_point[1], send_point[0], send_point[1], color= ('black' if doing_server_receive else 'grey'))
         
 
     def draw_input_snapshot_client_to_server_processed_line(self, client_physics_tick_logs, log_plt, ind):

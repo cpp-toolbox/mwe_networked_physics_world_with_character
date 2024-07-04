@@ -132,10 +132,11 @@ void ClientNetwork::reconcile_local_game_state_with_server_update(
 
     // reconciliation_history += fmt::format("after rolling back physics world state is: {}", physics);
 
-    reconciliation_history += fmt::format("Authorative pos to {} vel {}\n", authorative_position, authorative_velocity);
+    reconciliation_history += fmt::format("Authorative game state set current state: {}", physics);
 
-    reconciliation_history += fmt::format("starting reconciliation about to re apply {} snapshots out of {}\n",
-                                          snapshots_to_be_reprocessed.size(), processed_input_snapshot_history.size());
+    reconciliation_history +=
+        fmt::format("starting reconciliation about to re apply {} snapshots out of {}\n",
+                    snapshots_to_be_reprocessed.size() - 1, processed_input_snapshot_history.size());
 
     // spdlog::get("network")->info("starting reconciliation about to re apply {} snapshots out of {}",
     //                              snapshots_to_be_reprocessed.size(), processed_input_snapshot_history.size());
@@ -211,10 +212,6 @@ ClientNetwork::network_step_closure(int service_period_ms, Physics &physics, Cam
         [this, &service_period_ms, &physics, &client_id_to_character_data, &camera, &mouse,
          &processed_input_snapshot_history](double service_period_ms_temp) { // temp because usually this is delta time
             ENetEvent event;
-
-            if (this->id != -1) {
-                send_input_snapshot(processed_input_snapshot_history);
-            }
 
             while (enet_host_service(this->client, &event, 0) > 0) {
                 handle_network_event(event, physics, camera, mouse, client_id_to_character_data,
@@ -597,8 +594,7 @@ void ClientNetwork::send_input_snapshot(
                                             0); // 0 indicates unreliable packet
     //
 
-    spdlog::get("network")->info("~~~> sending input snapshot, it has timestamp {}",
-                                 most_recently_added_processed_snapshot.client_input_history_insertion_time_epoch_ms);
+    spdlog::get("network")->info("~~~> sending input snapshot, {}", most_recently_added_processed_snapshot);
     // printf("msx %f msy %f\n", this->input_snapshot->mouse_position_x,
     // this->input_snapshot->mouse_position_y);
     enet_peer_send(server_connection, 0, packet);

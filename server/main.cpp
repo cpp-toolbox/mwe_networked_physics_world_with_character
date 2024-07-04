@@ -282,9 +282,12 @@ int start_linear_setup() {
     const uint32_t target_frame_duration_ms = 1000 / 60; // Target frame duration in milliseconds (16.67 ms)
     auto previous_frame_time = std::chrono::high_resolution_clock::now();
 
-    while (true) {
+    std::string server_tick_message;
 
+    while (true) {
         auto current_frame_time = std::chrono::high_resolution_clock::now();
+        server_tick_message = fmt::format("started server tick at {}\n", current_frame_time);
+
         std::chrono::duration<double> delta_time = current_frame_time - previous_frame_time;
         double delta_time_seconds = delta_time.count(); // Delta time in seconds
         previous_frame_time = current_frame_time;
@@ -297,6 +300,8 @@ int start_linear_setup() {
         std::chrono::duration<double, std::milli> elapsed_update_time =
             after_update_and_render_time - current_frame_time;
 
+        server_tick_message += fmt::format("spent {} milliseconds on physics tick", elapsed_update_time);
+
         // Calculate remaining time for network events processing
         uint32_t remaining_time_for_network = target_frame_duration_ms;
         if (elapsed_update_time.count() < target_frame_duration_ms) {
@@ -308,15 +313,27 @@ int start_linear_setup() {
         // Send network events with remaining time in milliseconds
         network_step(remaining_time_for_network);
 
+        auto after_network_step = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsed_network_time =
+            after_network_step - after_update_and_render_time;
+
+        server_tick_message += fmt::format("spent {} ms on network tick, budget was {} ms\n", elapsed_network_time,
+                                           remaining_time_for_network);
+
         // Calculate total elapsed time for the frame
         auto frame_end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> elapsed_frame_time = frame_end_time - current_frame_time;
 
         // Calculate sleep time to maintain 60 Hz frequency
         auto sleep_duration = std::chrono::milliseconds(target_frame_duration_ms) - elapsed_frame_time;
+        server_tick_message +=
+            fmt::format("remaining frame time after physics and network is {}, starting to sleep for that much time\n",
+                        sleep_duration);
         if (sleep_duration > std::chrono::milliseconds(0)) {
             std::this_thread::sleep_for(sleep_duration);
         }
+        auto end_time = std::chrono::high_resolution_clock::now();
+        server_tick_message += fmt::format("woke up, end of server tick at {}", end_time);
     }
 
     return 0;

@@ -304,6 +304,13 @@ void start_linear_order_setup() {
         // Update physics with delta time in seconds
         update(delta_time_seconds);
 
+        // by sending first, we guarentee a common frequency of sending and it won't the frequency will not
+        // pick up random time variance by sending after render.
+        bool established_connection = client_network.id != -1;
+        if (established_connection) {
+            client_network.send_input_snapshot(processed_input_snapshot_history);
+        }
+
         // Render with delta time in seconds
 
         spdlog::info("starting render");
