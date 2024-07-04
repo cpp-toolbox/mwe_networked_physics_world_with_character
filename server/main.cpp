@@ -300,7 +300,7 @@ int start_linear_setup() {
         std::chrono::duration<double, std::milli> elapsed_update_time =
             after_update_and_render_time - current_frame_time;
 
-        server_tick_message += fmt::format("spent {} milliseconds on physics tick", elapsed_update_time.count());
+        server_tick_message += fmt::format("spent {} milliseconds on physics tick\n", elapsed_update_time.count());
 
         // Calculate remaining time for network events processing
         uint32_t remaining_time_for_network = target_frame_duration_ms;
@@ -327,10 +327,12 @@ int start_linear_setup() {
         // Calculate sleep time to maintain 60 Hz frequency
         auto sleep_duration = std::chrono::milliseconds(target_frame_duration_ms) - elapsed_frame_time;
         server_tick_message +=
-            fmt::format("remaining frame time after physics and network is {}, starting to sleep for that much time\n",
-                        sleep_duration.count());
+            fmt::format("remaining frame time after physics and network is {} ", sleep_duration.count());
         if (sleep_duration > std::chrono::milliseconds(0)) {
+            server_tick_message += "since non-negative time remaining, sleeping\n";
             std::this_thread::sleep_for(sleep_duration);
+        } else {
+            server_tick_message += "since negative time remaining we've gone over budget, not sleeping\n";
         }
         auto end_time = std::chrono::high_resolution_clock::now();
         server_tick_message += fmt::format("woke up, end of server tick at {}", end_time.time_since_epoch().count());
