@@ -124,27 +124,28 @@ std::function<void(double)> ServerNetwork::network_step_closure(
                                  client_id_to_cihtems_of_last_server_processed_input_snapshot, input_snapshot_queue);
         }
 
-        // auto initial_time = std::chrono::high_resolution_clock::now();
-        // // Now actually wait for new events
-        // int remaining_ms_cutoff = 10;
-        // int poll_period_ms = 1;
-        // while (time_remaining_for_current_frame_ms >= remaining_ms_cutoff) {
-        //     if (enet_host_service(this->server, &event, poll_period_ms) >
-        //         0) { // this actually is the amount of time to wait defined by the linear order thing
-        //         handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
-        //                              client_id_to_cihtems_of_last_server_processed_input_snapshot,
-        //                              input_snapshot_queue);
-        //
-        //         auto time_after_handling_network_event = std::chrono::high_resolution_clock::now();
-        //
-        //         std::chrono::duration<double, std::milli> elapsed_handle_network_event_time =
-        //             time_after_handling_network_event - initial_time;
-        //         initial_time = time_after_handling_network_event;
-        //
-        //         time_remaining_for_current_frame_ms -=
-        //         static_cast<uint32_t>(elapsed_handle_network_event_time.count());
-        //     }
-        // }
+        auto initial_time = std::chrono::high_resolution_clock::now();
+        // Now actually wait for new events
+        int remaining_ms_cutoff = 10;
+        int poll_period_ms = 1;
+        while (time_remaining_for_current_frame_ms >= remaining_ms_cutoff) {
+            if (enet_host_service(this->server, &event, poll_period_ms) >
+                0) { // this actually is the amount of time to wait defined by the linear order thing
+                handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
+                                     client_id_to_cihtems_of_last_server_processed_input_snapshot,
+                                     input_snapshot_queue);
+
+                auto time_after_handling_network_event = std::chrono::high_resolution_clock::now();
+
+                std::chrono::duration<double, std::milli> elapsed_handle_network_event_time =
+                    time_after_handling_network_event - initial_time;
+                initial_time = time_after_handling_network_event;
+
+                // time_remaining_for_current_frame_ms -=
+                // static_cast<uint32_t>(elapsed_handle_network_event_time.count());
+                time_remaining_for_current_frame_ms -= poll_period_ms;
+            }
+        }
     };
 }
 
