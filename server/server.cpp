@@ -135,7 +135,8 @@ std::function<void(double)> ServerNetwork::network_step_closure(
         while (true) {
             // Calculate the elapsed time in milliseconds
             auto elapsed_time =
-                duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count();
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time)
+                    .count();
 
             // Check if adding the sleep duration would exceed the total allowed time
             if (elapsed_time + sleep_duration_ms > total_time_ms) {
