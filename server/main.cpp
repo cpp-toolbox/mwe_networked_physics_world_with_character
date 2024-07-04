@@ -334,6 +334,7 @@ int start_linear_setup() {
         }
         auto end_time = std::chrono::high_resolution_clock::now();
         server_tick_message += fmt::format("woke up, end of server tick at {}", end_time.time_since_epoch().count());
+        spdlog::info(server_tick_message);
     }
 
     return 0;
