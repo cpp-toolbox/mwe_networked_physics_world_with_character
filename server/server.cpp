@@ -111,7 +111,7 @@ std::function<void(double)> ServerNetwork::network_step_closure(
     return [this, input_snapshot, &send_frequency_hz, physics, &client_id_to_camera, &client_id_to_mouse,
             &client_id_to_cihtems_of_last_server_processed_input_snapshot,
             &input_snapshot_queue](double time_since_last_network_step) {
-        double time_remaining_for_current_frame_sec = time_since_last_network_step;
+        double time_remaining_for_current_frame_ms = time_since_last_network_step;
 
         // send game state first that way it is sent at a constant rate, rather than at the end which makes the send
         // time variable
@@ -124,8 +124,6 @@ std::function<void(double)> ServerNetwork::network_step_closure(
                                  client_id_to_cihtems_of_last_server_processed_input_snapshot, input_snapshot_queue);
         }
 
-        // Convert time_in_seconds to milliseconds for easier comparison
-        int64_t total_time_ms = static_cast<int64_t>(time_remaining_for_current_frame_sec * 1000);
         // Set a small sleep duration in milliseconds
         int sleep_duration_ms = 1;
 
@@ -139,7 +137,7 @@ std::function<void(double)> ServerNetwork::network_step_closure(
                     .count();
 
             // Check if adding the sleep duration would exceed the total allowed time
-            if (elapsed_time + sleep_duration_ms > total_time_ms) {
+            if (elapsed_time + sleep_duration_ms > time_remaining_for_current_frame_ms) {
                 break; // Exit the loop if the next sleep would go overtime
             }
 
