@@ -111,7 +111,7 @@ std::function<void(double)> ServerNetwork::network_step_closure(
     return [this, input_snapshot, &send_frequency_hz, physics, &client_id_to_camera, &client_id_to_mouse,
             &client_id_to_cihtems_of_last_server_processed_input_snapshot,
             &input_snapshot_queue](double time_since_last_network_step) {
-        double time_remaining_for_current_frame_ms = time_since_last_network_step;
+        double time_remaining_for_current_frame_sec = time_since_last_network_step;
 
         // send game state first that way it is sent at a constant rate, rather than at the end which makes the send
         // time variable
@@ -124,28 +124,58 @@ std::function<void(double)> ServerNetwork::network_step_closure(
                                  client_id_to_cihtems_of_last_server_processed_input_snapshot, input_snapshot_queue);
         }
 
-        auto initial_time = std::chrono::high_resolution_clock::now();
-        // Now actually wait for new events
-        int remaining_ms_cutoff = 10;
-        int poll_period_ms = 1;
-        while (time_remaining_for_current_frame_ms >= remaining_ms_cutoff) {
-            if (enet_host_service(this->server, &event, poll_period_ms) >
+        // Convert time_in_seconds to milliseconds for easier comparison
+        int64_t total_time_ms = static_cast<int64_t>(time_remaining_for_current_frame_sec * 1000);
+        // Set a small sleep duration in milliseconds
+        int sleep_duration_ms = 1;
+
+        // Get the starting time point
+        auto start_time = std::chrono::steady_clock::now();
+
+        while (true) {
+            // Calculate the elapsed time in milliseconds
+            auto elapsed_time =
+                duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count();
+
+            // Check if adding the sleep duration would exceed the total allowed time
+            if (elapsed_time + sleep_duration_ms > total_time_ms) {
+                break; // Exit the loop if the next sleep would go overtime
+            }
+
+            // Perform your task here
+            std::cout << "Iteration, elapsed time: " << elapsed_time << " ms" << std::endl;
+
+            // Sleep for the specified duration
+            if (enet_host_service(this->server, &event, sleep_duration_ms) >
                 0) { // this actually is the amount of time to wait defined by the linear order thing
                 handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
                                      client_id_to_cihtems_of_last_server_processed_input_snapshot,
                                      input_snapshot_queue);
-
-                auto time_after_handling_network_event = std::chrono::high_resolution_clock::now();
-
-                std::chrono::duration<double, std::milli> elapsed_handle_network_event_time =
-                    time_after_handling_network_event - initial_time;
-                initial_time = time_after_handling_network_event;
-
-                // time_remaining_for_current_frame_ms -=
-                // static_cast<uint32_t>(elapsed_handle_network_event_time.count());
-                time_remaining_for_current_frame_ms -= poll_period_ms;
             }
         }
+
+        // auto initial_time = std::chrono::high_resolution_clock::now();
+        // // Now actually wait for new events
+        // int remaining_ms_cutoff = 10;
+        // int poll_period_ms = 1;
+        // while (time_remaining_for_current_frame_ms >= remaining_ms_cutoff) {
+        //     if (enet_host_service(this->server, &event, poll_period_ms) >
+        //         0) { // this actually is the amount of time to wait defined by the linear order thing
+        //         handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
+        //                              client_id_to_cihtems_of_last_server_processed_input_snapshot,
+        //                              input_snapshot_queue);
+        //
+        //         auto time_after_handling_network_event = std::chrono::high_resolution_clock::now();
+        //
+        //         std::chrono::duration<double, std::milli> elapsed_handle_network_event_time =
+        //             time_after_handling_network_event - initial_time;
+        //         initial_time = time_after_handling_network_event;
+        //
+        //         // time_remaining_for_current_frame_ms -=
+        //         // static_cast<uint32_t>(elapsed_handle_network_event_time.count());
+        //         time_remaining_for_current_frame_ms -= poll_period_ms;
+        //     }
+        // }
     };
 }
 
