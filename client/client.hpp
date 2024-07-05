@@ -23,6 +23,7 @@ class ClientNetwork {
     std::string local_ip_address = "127.0.0.1";
     std::string server_ip_address = "104.131.10.102";
     int server_port = 7777;
+    NetworkedCharacterData most_recent_client_game_state_update;
 
     std::function<void(double)>
     network_step_closure(int send_frequency_hz, Physics &physics, Camera &camera, Mouse &mouse,
@@ -51,6 +52,10 @@ class ClientNetwork {
         ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history,
         JPH::Vec3 &authorative_position, JPH::Vec3 &authorative_velocity);
 
+    void update_local_client_with_game_state(
+        NetworkedCharacterData &networked_character_data, Physics &physics, Camera &camera, Mouse &mouse,
+        std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+        ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history);
     void initialize_client_network();
     void attempt_to_connect_to_server();
     void disconnect_from_server();

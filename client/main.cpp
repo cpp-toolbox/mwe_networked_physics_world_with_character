@@ -274,8 +274,9 @@ void start_linear_order_setup() {
     ClientNetwork client_network(&live_input_snapshot);
     client_network.attempt_to_connect_to_server();
 
-    std::function<void(double)> network_step = client_network.network_step_closure(
-        network_send_rate_hz, physics, camera, mouse, client_id_to_character_data, processed_input_snapshot_history);
+    std::function<void(double)> process_received_game_states_received_since_end_of_last_tick_and_reconcile =
+        client_network.network_step_closure(network_send_rate_hz, physics, camera, mouse, client_id_to_character_data,
+                                            processed_input_snapshot_history);
 
     std::function<void(double)> update =
         update_closure(client_network.reconcile_mutex, processed_input_snapshot_history, client_id_to_character_data,
@@ -302,7 +303,10 @@ void start_linear_order_setup() {
         previous_frame_time = current_frame_time;
 
         // Update physics with delta time in seconds
+        //
+        spdlog::info("starting update");
         update(delta_time_seconds);
+        spdlog::info("update complete");
 
         // by sending first, we guarentee a common frequency of sending and it won't the frequency will not
         // pick up random time variance by sending after render.
@@ -311,7 +315,12 @@ void start_linear_order_setup() {
             client_network.send_input_snapshot(processed_input_snapshot_history);
         }
 
-        // Render with delta time in seconds
+        // this can't be in the established connection block for some reason, look into that if you ever need
+        // to put it in the block
+        process_received_game_states_received_since_end_of_last_tick_and_reconcile(0);
+
+        // Render with delta time in seconds, always render after, because it it was done first it
+        // would add random offsets to the send time.
 
         spdlog::info("starting render");
         render(delta_time_seconds);
@@ -323,15 +332,6 @@ void start_linear_order_setup() {
             after_update_and_render_time - current_frame_time;
 
         spdlog::info("update and render took {} milliseconds", elapsed_update_and_render_time.count());
-
-        // Calculate remaining time for network events processing
-        uint32_t remaining_time_for_network = target_frame_duration_ms;
-        if (elapsed_update_and_render_time.count() < target_frame_duration_ms) {
-            remaining_time_for_network -= static_cast<uint32_t>(elapsed_update_and_render_time.count());
-        }
-
-        // Send network events with remaining time in milliseconds
-        network_step(remaining_time_for_network);
 
         // Calculate total elapsed time for the frame
         auto frame_end_time = std::chrono::high_resolution_clock::now();

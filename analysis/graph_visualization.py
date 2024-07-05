@@ -11,7 +11,7 @@ from typing import List
 
 use_remote_server_logs = True
 remote_server_time_offset_hours = 4;
-remote_server_time_offset_seconds = 6.921; 
+remote_server_time_offset_seconds = 7.031; 
 
 class Client(Enum):
     received_unique_id = auto()

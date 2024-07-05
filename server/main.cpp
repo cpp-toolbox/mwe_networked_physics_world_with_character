@@ -91,9 +91,11 @@ std::function<void(double)> physics_step_closure(
             std::string struct_string = input_snapshot_queue_application_stream.str();
 
             spdlog::info("just updated player velocity using IS: \n{}", popped_input_snapshot);
+
+            physics->update_specific_character(time_since_last_update, client_id);
         }
 
-        physics->update(time_since_last_update);
+        // physics->update(time_since_last_update);
 
         spdlog::info("physics tick with delta: {} game state: \n{}", time_since_last_update, *physics);
     };

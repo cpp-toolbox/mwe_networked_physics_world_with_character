@@ -61,6 +61,7 @@ void ClientNetwork::attempt_to_connect_to_server() {
     if (enet_host_service(client, &event, 5000) > 0 && event.type == ENET_EVENT_TYPE_CONNECT) {
 
         puts("Connection to some.server.net:1234 succeeded.");
+        spdlog::info("Connection to server succeeded.");
         printf("peer id: %d\n", enet_peer_get_id(event.peer));
     } else {
         /* Either the 5 seconds are up or a disconnect event was */
@@ -217,11 +218,13 @@ ClientNetwork::network_step_closure(int service_period_ms, Physics &physics, Cam
                 handle_network_event(event, physics, camera, mouse, client_id_to_character_data,
                                      processed_input_snapshot_history);
             }
+            // by the time the while loop finishes if any new game state updates arrived, then this->mrcgsu will be
+            // correct also of two arrived it will be pointing the the newest as the variable name implies
 
-            if (enet_host_service(this->client, &event, service_period_ms_temp) > //
-                0) { // note this sleeps the thread for the period specified
-                handle_network_event(event, physics, camera, mouse, client_id_to_character_data,
-                                     processed_input_snapshot_history);
+            bool client_id_received_already = id != -1;
+            if (client_id_received_already) {
+                update_local_client_with_game_state(this->most_recent_client_game_state_update, physics, camera, mouse,
+                                                    client_id_to_character_data, processed_input_snapshot_history);
             }
 
         };
@@ -284,6 +287,53 @@ void ClientNetwork::handle_network_event(
     }
 }
 
+void ClientNetwork::update_local_client_with_game_state(
+    NetworkedCharacterData &networked_character_data, Physics &physics, Camera &camera, Mouse &mouse,
+    std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+    ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history) {
+    // server is authorative blindly apply the update.
+    client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
+    JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+        physics.client_id_to_physics_character[networked_character_data.client_id];
+
+    JPH::Vec3 authoriative_position = {networked_character_data.character_x_position,
+                                       networked_character_data.character_y_position,
+                                       networked_character_data.character_z_position};
+
+    JPH::Vec3 authoriative_velocity = {networked_character_data.character_x_velocity,
+                                       networked_character_data.character_y_velocity,
+                                       networked_character_data.character_z_velocity};
+
+    JPH::Vec3 position_with_prediction = client_physics_character->GetPosition();
+    JPH::Vec3 velocity_with_prediction = client_physics_character->GetLinearVelocity();
+
+    spdlog::get("network")->info("Before reconciliation game state was \n position: {}, velocity: {}",
+                                 position_with_prediction, velocity_with_prediction);
+
+    // camera.set_look_direction(networked_character_data.camera_yaw_angle,
+    // networked_character_data.camera_pitch_angle);
+
+    // JPH::Ref<JPH::CharacterVirtual> client_physics_character =
+    //     physics.client_id_to_physics_character[networked_character_data.client_id];
+
+    // client_physics_character.SetPosition();
+
+    // now account for the local updates that have ocurred since then
+    reconcile_local_game_state_with_server_update(networked_character_data, physics, camera, mouse,
+                                                  client_id_to_character_data, processed_input_snapshot_history,
+                                                  authoriative_position, authoriative_velocity);
+
+    JPH::Vec3 position_after_reconciliation = client_physics_character->GetPosition();
+    JPH::Vec3 velocity_after_reconciliation = client_physics_character->GetLinearVelocity();
+
+    JPH::Vec3 predicted_position_diff = position_with_prediction - position_after_reconciliation;
+    JPH::Vec3 predicted_velocity_diff = velocity_with_prediction - velocity_after_reconciliation;
+
+    spdlog::get("network")->info("prediction deltas, pos: {}, vel: {}\n poslen: {}, vellen: {}",
+                                 predicted_position_diff, predicted_velocity_diff, predicted_position_diff.Length(),
+                                 predicted_velocity_diff.Length());
+}
+
 void ClientNetwork::process_game_state_update(
     NetworkedCharacterData *game_update, int game_update_length, Physics &physics, Camera &camera, Mouse &mouse,
     std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
@@ -310,49 +360,11 @@ void ClientNetwork::process_game_state_update(
             if (networked_character_data.cihtems_of_last_server_processed_input_snapshot == -1) {
                 printf("got minus one BAD!\n");
             }
-
-            // server is authorative blindly apply the update.
-            client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
-            JPH::Ref<JPH::CharacterVirtual> client_physics_character =
-                physics.client_id_to_physics_character[networked_character_data.client_id];
-
-            JPH::Vec3 authoriative_position = {networked_character_data.character_x_position,
-                                               networked_character_data.character_y_position,
-                                               networked_character_data.character_z_position};
-
-            JPH::Vec3 authoriative_velocity = {networked_character_data.character_x_velocity,
-                                               networked_character_data.character_y_velocity,
-                                               networked_character_data.character_z_velocity};
-
-            JPH::Vec3 position_with_prediction = client_physics_character->GetPosition();
-            JPH::Vec3 velocity_with_prediction = client_physics_character->GetLinearVelocity();
-
-            spdlog::get("network")->info("Before reconciliation game state was \n position: {}, velocity: {}",
-                                         position_with_prediction, velocity_with_prediction);
-
-            // camera.set_look_direction(networked_character_data.camera_yaw_angle,
-            // networked_character_data.camera_pitch_angle);
-
-            // JPH::Ref<JPH::CharacterVirtual> client_physics_character =
-            //     physics.client_id_to_physics_character[networked_character_data.client_id];
-
-            // client_physics_character.SetPosition();
-
-            // now account for the local updates that have ocurred since then
-            reconcile_local_game_state_with_server_update(networked_character_data, physics, camera, mouse,
-                                                          client_id_to_character_data, processed_input_snapshot_history,
-                                                          authoriative_position, authoriative_velocity);
-
-            JPH::Vec3 position_after_reconciliation = client_physics_character->GetPosition();
-            JPH::Vec3 velocity_after_reconciliation = client_physics_character->GetLinearVelocity();
-
-            JPH::Vec3 predicted_position_diff = position_with_prediction - position_after_reconciliation;
-            JPH::Vec3 predicted_velocity_diff = velocity_with_prediction - velocity_after_reconciliation;
-
-            spdlog::get("network")->info("prediction deltas, pos: {}, vel: {}\n poslen: {}, vellen: {}",
-                                         predicted_position_diff, predicted_velocity_diff,
-                                         predicted_position_diff.Length(), predicted_velocity_diff.Length());
-
+            this->most_recent_client_game_state_update =
+                networked_character_data; // this is key, this function updates the most recent game state update
+            // the reason why this is so important is that if two server messages come in between client ticks, we won't
+            // reconcile on both, only at the start of the tick will we actually reconcile with the most recent one that
+            // we've received.
         } else { // this is not the client player, just slam that data in.
             client_id_to_character_data[networked_character_data.client_id] = networked_character_data;
         }
