@@ -142,9 +142,6 @@ std::function<void(double)> ServerNetwork::network_step_closure(
                 break; // Exit the loop if the next sleep would go overtime
             }
 
-            // Perform your task here
-            std::cout << "Iteration, elapsed time: " << elapsed_time << " ms" << std::endl;
-
             // Sleep for the specified duration
             if (enet_host_service(this->server, &event, sleep_duration_ms) >
                 0) { // this actually is the amount of time to wait defined by the linear order thing
