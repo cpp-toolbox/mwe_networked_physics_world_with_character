@@ -120,6 +120,7 @@ std::function<void(double)> ServerNetwork::network_step_closure(
         ENetEvent event;
 
         while (enet_host_service(this->server, &event, 0) > 0) { // handle any events that have been waiting
+            spdlog::info("initial enet_host_service calls");
             handle_network_event(event, input_snapshot, physics, client_id_to_camera, client_id_to_mouse,
                                  client_id_to_cihtems_of_last_server_processed_input_snapshot, input_snapshot_queue);
         }
@@ -151,6 +152,7 @@ std::function<void(double)> ServerNetwork::network_step_closure(
                                      client_id_to_cihtems_of_last_server_processed_input_snapshot,
                                      input_snapshot_queue);
             }
+            spdlog::info("network while looping");
         }
 
         // auto initial_time = std::chrono::high_resolution_clock::now();
