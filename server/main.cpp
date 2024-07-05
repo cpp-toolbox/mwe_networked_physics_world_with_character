@@ -292,8 +292,13 @@ int start_linear_setup() {
         double delta_time_seconds = delta_time.count(); // Delta time in seconds
         previous_frame_time = current_frame_time;
 
+        network_step(delta_time_seconds);
+
         // Update physics with delta time in seconds
         physics_step(delta_time_seconds);
+
+        server_network.send_game_state(&physics, client_id_to_camera,
+                                       client_id_to_cihtems_of_last_server_processed_input_snapshot);
 
         // Calculate elapsed time after physics
         auto after_update_and_render_time = std::chrono::high_resolution_clock::now();
@@ -302,23 +307,23 @@ int start_linear_setup() {
 
         server_tick_message += fmt::format("spent {} milliseconds on physics tick\n", elapsed_update_time.count());
 
-        // Calculate remaining time for network events processing
-        uint32_t remaining_time_for_network = target_frame_duration_ms;
-        if (elapsed_update_time.count() < target_frame_duration_ms) {
-            remaining_time_for_network -= static_cast<uint32_t>(elapsed_update_time.count());
-        } else {
-            // our physics step took incredibly long, this is bad...
-        }
+        // // Calculate remaining time for network events processing
+        // uint32_t remaining_time_for_network = target_frame_duration_ms;
+        // if (elapsed_update_time.count() < target_frame_duration_ms) {
+        //     remaining_time_for_network -= static_cast<uint32_t>(elapsed_update_time.count());
+        // } else {
+        //     // our physics step took incredibly long, this is bad...
+        // }
 
         // Send network events with remaining time in milliseconds
-        network_step(remaining_time_for_network);
+        // network_step(remaining_time_for_network);
 
-        auto after_network_step = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double, std::milli> elapsed_network_time =
-            after_network_step - after_update_and_render_time;
+        // auto after_network_step = std::chrono::high_resolution_clock::now();
+        // std::chrono::duration<double, std::milli> elapsed_network_time =
+        //     after_network_step - after_update_and_render_time;
 
-        server_tick_message += fmt::format("spent {} ms on network tick, budget was {} ms\n",
-                                           elapsed_network_time.count(), remaining_time_for_network);
+        // server_tick_message += fmt::format("spent {} ms on network tick, budget was {} ms\n",
+        //                                    elapsed_network_time.count(), remaining_time_for_network);
 
         // Calculate total elapsed time for the frame
         auto frame_end_time = std::chrono::high_resolution_clock::now();
