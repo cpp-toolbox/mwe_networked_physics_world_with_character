@@ -223,6 +223,7 @@ ClientNetwork::network_step_closure(int service_period_ms, Physics &physics, Cam
 
             bool client_id_received_already = id != -1;
             if (client_id_received_already) {
+                // this has to be called
                 update_local_client_with_game_state(this->most_recent_client_game_state_update, physics, camera, mouse,
                                                     client_id_to_character_data, processed_input_snapshot_history);
             }
