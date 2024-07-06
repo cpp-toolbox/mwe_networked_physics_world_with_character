@@ -103,9 +103,6 @@
 [submodule "server/networked_input_snapshot"]
 	path = server/networked_input_snapshot
 	url = git@github.com:opengl-toolbox/networked_input_snapshot.git
-[submodule "server/interaction/multiplayer_physics"]
-	path = server/interaction/multiplayer_physics
-	url = git@github.com:opengl-toolbox/multiplayer_physics.git
 [submodule "client/multiplayer_window"]
 	path = client/multiplayer_window
 	url = git@github.com:opengl-toolbox/multiplayer_window.git
