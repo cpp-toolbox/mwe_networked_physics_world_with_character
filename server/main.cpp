@@ -294,11 +294,13 @@ int start_linear_setup() {
         double delta_time_seconds = delta_time.count(); // Delta time in seconds
         previous_frame_time = current_frame_time;
 
+        // collect new input snapshots
         network_step(delta_time_seconds);
 
         // Update physics with delta time in seconds
         physics_step(delta_time_seconds);
 
+        // send out the new changes
         server_network.send_game_state(&physics, client_id_to_camera,
                                        client_id_to_cihtems_of_last_server_processed_input_snapshot);
 

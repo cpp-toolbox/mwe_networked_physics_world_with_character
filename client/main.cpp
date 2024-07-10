@@ -31,6 +31,21 @@ std::function<int()> termination_closure(GLFWwindow *window) {
     return [window]() { return glfwWindowShouldClose(window); };
 }
 
+void set_character_render_state(std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
+                                Physics &physics, Camera &camera, uint64_t *client_id) {
+    if (*client_id == -1) {
+        return; // we've not yet connected to the server, no reason to start doing anything yet. we can do better by
+                // waiting to start any thread until this condition is met. which can be check occasionally.
+    }
+    JPH::Ref<JPH::CharacterVirtual> client_physics_character = physics.client_id_to_physics_character[*client_id];
+    client_id_to_character_data[*client_id].camera_yaw_angle = camera.yaw_angle;
+    client_id_to_character_data[*client_id].camera_pitch_angle = camera.pitch_angle;
+    client_id_to_character_data[*client_id].character_x_position = client_physics_character->GetPosition().GetX();
+    client_id_to_character_data[*client_id].character_y_position = client_physics_character->GetPosition().GetY();
+    client_id_to_character_data[*client_id].character_z_position = client_physics_character->GetPosition().GetZ();
+    spdlog::info("just set character state");
+}
+
 std::function<void(double)> update_closure(
     std::mutex &reconcile_mutex, ExpiringDataContainer<NetworkedInputSnapshot> &processed_input_snapshot_history,
     std::unordered_map<uint64_t, NetworkedCharacterData> &client_id_to_character_data,
@@ -46,26 +61,12 @@ std::function<void(double)> update_closure(
         // TODO make sure that the player exists first? mutex it?
         const float movement_acceleration = 15.0f;
 
-        // TODO this probably needs to be locked with a mutex so that a network and local update can't occur at the
-        // same time for now I don't care.
-        reconcile_mutex.lock();
-
         JPH::Ref<JPH::CharacterVirtual> client_physics_character = physics.client_id_to_physics_character[*client_id];
-        spdlog::info("just got the jolt lock to update player");
         update_player_camera_and_velocity(client_physics_character, camera, mouse, frozen_input_snapshot,
                                           movement_acceleration, time_since_last_update_ms,
                                           physics.physics_system.GetGravity());
 
         physics.update(time_since_last_update_ms);
-
-        spdlog::info("just set character state");
-        // this data is what is used for rendering
-        client_id_to_character_data[*client_id].camera_yaw_angle = camera.yaw_angle;
-        client_id_to_character_data[*client_id].camera_pitch_angle = camera.pitch_angle;
-        client_id_to_character_data[*client_id].character_x_position = client_physics_character->GetPosition().GetX();
-        client_id_to_character_data[*client_id].character_y_position = client_physics_character->GetPosition().GetY();
-        client_id_to_character_data[*client_id].character_z_position = client_physics_character->GetPosition().GetZ();
-        spdlog::info("unlocking jolt mutex");
 
         uint64_t time = std::chrono::steady_clock::now().time_since_epoch().count();
         frozen_input_snapshot.client_input_history_insertion_time_epoch_ms = time;
@@ -74,7 +75,7 @@ std::function<void(double)> update_closure(
         spdlog::info("physics tick with delta: {}\nusing input snapshot: {}, physics world: {}",
                      time_since_last_update_ms, frozen_input_snapshot, physics);
 
-        reconcile_mutex.unlock();
+        // reconcile_mutex.unlock();
 
         // JPH::Vec3 velocity_after_reconciliation = client_physics_character->GetLinearVelocity();
         JPH::Vec3 position_after_update = client_physics_character->GetPosition();
@@ -147,92 +148,42 @@ void create_logger_system() {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%F] [%l] %v");
 }
 
-void start_multithreaded_setup() {
-    create_logger_system();
+void parse_command_line_arguments(int argc, char *argv[], std::string &ip_address, int &port) {
+    bool ip_specified = false;
 
-    Mouse mouse;
-    unsigned int window_width_px = 600, window_height_px = 600;
-    bool start_in_fullscreen = false;
-    bool vsync = false;
-    const int render_max_rate_hz = 60;
-    const int update_rate_hz = 60;
-    const int network_send_rate_hz = 60;
+    // Parsing command line arguments
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-ip" && i + 1 < argc) {
+            ip_address = argv[++i];
+            ip_specified = true;
+        } else if (arg == "-port" && i + 1 < argc) {
+            port = std::stoi(argv[++i]);
+        } else {
+            std::cerr << "Usage: " << argv[0] << " -ip <IP address> [-port <port>]" << std::endl;
+            exit(1);
+        }
+    }
 
-    // "live" means that on mouse and keyboard callbacks it is disjointly written to
-    // immediately
-    NetworkedInputSnapshot live_input_snapshot;
-    Camera camera;
-    glm::vec3 character_position(0, 0, 0);
-
-    ExpiringDataContainer<NetworkedInputSnapshot> processed_input_snapshot_history(std::chrono::milliseconds(2000));
-
-    GameLoop game_loop;
-
-    std::unordered_map<uint64_t, NetworkedCharacterData> client_id_to_character_data;
-
-    GLFWwindow *window = initialize_glfw_glad_and_return_window(&window_width_px, &window_height_px, "client",
-                                                                start_in_fullscreen, vsync, &live_input_snapshot);
-
-    ShaderPipeline player_pov_shader_pipeline;
-    glEnable(GL_DEPTH_TEST); // configure global opengl state
-    player_pov_shader_pipeline.load_in_shaders_from_file(
-        "../graphics/shaders/"
-        "CWL_v_transformation_with_texture_position_passthrough.vert",
-        "../graphics/shaders/textured.frag"); // build and compile shaders
-
-    Model map("../assets/maps/ground_test.obj", player_pov_shader_pipeline.shader_program_id);
-    Model character_model("../assets/character/character.obj", player_pov_shader_pipeline.shader_program_id);
-
-    Physics physics;
-    physics.load_model_into_physics_world(&map);
-
-    ClientNetwork client_network(&live_input_snapshot);
-    client_network.attempt_to_connect_to_server();
-
-    RateLimitedLoop network_loop;
-    std::function<void(double)> network_step = client_network.network_step_closure(
-        network_send_rate_hz, physics, camera, mouse, client_id_to_character_data, processed_input_snapshot_history);
-
-    std::function<bool()> termination_condition = []() { return false; };
-
-    std::function start_network_loop = [&]() {
-        network_loop.start(network_send_rate_hz, network_step, termination_condition);
-    };
-    std::thread network_thread(start_network_loop);
-    network_thread.detach();
-
-    // std::thread network_thread(&ClientNetwork::start_network_loop, std::ref(client_network), 60,
-    //                            client_id_to_character_data);
-    // network_thread.detach();
-    //
-    RateLimitedLoop update_loop;
-
-    std::function<void(double)> update =
-        update_closure(client_network.reconcile_mutex, processed_input_snapshot_history, client_id_to_character_data,
-                       live_input_snapshot, physics, mouse, camera, &client_network.id);
-
-    std::function start_update_loop = [&]() { update_loop.start(60, update, termination_condition); };
-
-    std::thread update_thread(start_update_loop);
-    update_thread.detach();
-
-    RateLimitedLoop render_loop;
-    std::function<void(double)> render =
-        render_closure(player_pov_shader_pipeline.shader_program_id, &map, character_model, client_id_to_character_data,
-                       &camera, window, window_width_px, window_height_px, &client_network.id);
-
-    std::function<int()> termination = termination_closure(window);
-
-    render_loop.start(render_max_rate_hz, render, termination);
-    // std::function start_render_loop = [&]() { render_loop.start(render_max_rate_hz, render, termination); };
-
-    // std::thread render_thread(start_render_loop);
-    // render_thread.join();
-
-    // game_loop.start(60, update, render, termination);
+    // Check if IP address was specified
+    if (!ip_specified) {
+        std::cerr << "Error: IP address is required." << std::endl;
+        std::cerr << "Usage: " << argv[0] << " -ip <IP address> [-port <port>]" << std::endl;
+        exit(1);
+    }
 }
 
-void start_linear_order_setup() {
+void start_linear_order_setup(int argc, char *argv[]) {
+
+    // Default port value
+    int port = 7777; // Default port
+
+    // Variable to store the IP address
+    std::string ip_address;
+
+    // Parse command line arguments
+    parse_command_line_arguments(argc, argv, ip_address, port);
+
     create_logger_system();
 
     Mouse mouse;
@@ -271,7 +222,7 @@ void start_linear_order_setup() {
     Physics physics;
     physics.load_model_into_physics_world(&map);
 
-    ClientNetwork client_network(&live_input_snapshot);
+    ClientNetwork client_network(&live_input_snapshot, ip_address, port);
     client_network.attempt_to_connect_to_server();
 
     std::function<void(double)> process_received_game_states_received_since_end_of_last_tick_and_reconcile =
@@ -322,6 +273,8 @@ void start_linear_order_setup() {
         // Render with delta time in seconds, always render after, because it it was done first it
         // would add random offsets to the send time.
 
+        set_character_render_state(client_id_to_character_data, physics, camera, &client_network.id);
+
         spdlog::info("starting render");
         render(delta_time_seconds);
         spdlog::info("render complete");
@@ -345,4 +298,4 @@ void start_linear_order_setup() {
     }
 }
 
-int main() { start_linear_order_setup(); }
+int main(int argc, char *argv[]) { start_linear_order_setup(argc, argv); }

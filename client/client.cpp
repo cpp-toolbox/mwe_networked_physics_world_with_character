@@ -10,7 +10,8 @@
 #include "spdlog/spdlog.h"
 #include "formatting/formatting.hpp"
 
-ClientNetwork::ClientNetwork(NetworkedInputSnapshot *input_snapshot) : input_snapshot(input_snapshot) {
+ClientNetwork::ClientNetwork(NetworkedInputSnapshot *input_snapshot, std::string &ip_address, int port)
+    : input_snapshot(input_snapshot), server_ip_address(ip_address), server_port(port) {
     initialize_client_network();
 }
 ClientNetwork::~ClientNetwork() { disconnect_from_server(); }
@@ -42,15 +43,10 @@ void ClientNetwork::attempt_to_connect_to_server() {
     ENetAddress address = {0};
     ENetEvent event = {static_cast<ENetEventType>(0)};
     server_connection = {0};
-    /* Connect to some.server.net:1234. */
-    // enet_address_set_host(&address, "142.67.250.4");
-    // address.port = 9999;
-    if (this->online_connection) {
-        enet_address_set_host(&address, "104.131.10.102");
-    } else {
-        enet_address_set_host(&address, "127.0.0.1");
-    }
-    address.port = 7777;
+
+    enet_address_set_host(&address, this->server_ip_address.c_str());
+    address.port = this->server_port;
+
     /* Initiate the connection, allocating the two channels 0 and 1. */
     server_connection = enet_host_connect(client, &address, 2, 0);
     if (server_connection == NULL) {

@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 from typing import List
 
-use_remote_server_logs = True
+use_remote_server_logs = False
 remote_server_time_offset_hours = 4;
-remote_server_time_offset_seconds = 7.064; 
+remote_server_time_offset_seconds = 10.018; 
 
 class Client(Enum):
     received_unique_id = auto()
